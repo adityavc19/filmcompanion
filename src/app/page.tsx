@@ -31,17 +31,30 @@ export default async function HomePage() {
   const popularFilms = await getPopularFilms();
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="min-h-screen flex flex-col relative">
+      {/* Cover image background */}
+      <div className="fixed inset-0 z-0">
+        <Image
+          src="/cover.jpeg"
+          alt=""
+          fill
+          className="object-cover"
+          priority
+        />
+        {/* Dark overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-black/40 to-black/60" />
+      </div>
+
       {/* Hero */}
-      <div className="flex-1 flex flex-col items-center justify-center px-4 py-20">
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-20">
         <div className="text-center mb-12">
-          <h1 className="font-display text-5xl md:text-6xl text-white mb-4 tracking-tight">
+          <h1 className="font-display text-5xl md:text-6xl text-white mb-4 tracking-tight drop-shadow-lg">
             Film Companion
           </h1>
-          <p className="text-cinema-muted text-lg md:text-xl max-w-lg mx-auto leading-relaxed">
+          <p className="text-white/70 text-lg md:text-xl max-w-lg mx-auto leading-relaxed">
             Discuss any film like you just watched it together.
           </p>
-          <p className="text-cinema-muted/60 text-sm mt-2">
+          <p className="text-white/80 text-sm mt-2">
             Draws from Letterboxd, Reddit, critics, and video essays.
           </p>
         </div>
@@ -52,12 +65,12 @@ export default async function HomePage() {
       </div>
 
       {/* Popular films */}
-      <div className="border-t border-cinema-border/40 bg-cinema-surface/30 backdrop-blur px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          <p className="text-cinema-muted/60 text-xs uppercase tracking-widest mb-5 text-center">
+      <div className="relative z-10 flex justify-center pb-10">
+        <div className="inline-flex flex-col items-center gap-4 bg-black/20 backdrop-blur-sm border border-white/10 rounded-2xl px-6 py-5">
+          <p className="text-white/40 text-xs uppercase tracking-widest">
             Start with a popular film
           </p>
-          <div className="flex justify-center gap-4 flex-wrap">
+          <div className="flex gap-4 flex-wrap justify-center">
             {popularFilms.map((film) => (
               <Link
                 key={film.id}
@@ -79,7 +92,7 @@ export default async function HomePage() {
                     </div>
                   )}
                 </div>
-                <span className="text-cinema-muted text-xs text-center leading-tight group-hover:text-white transition-colors">
+                <span className="text-white/50 text-xs text-center leading-tight group-hover:text-white transition-colors">
                   {film.title}
                 </span>
               </Link>
