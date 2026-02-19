@@ -48,6 +48,7 @@ export async function scrapeRottenTomatoes(
   for (const url of urls) {
     try {
       const res = await fetch(url, { headers: HEADERS });
+      console.log(`[rottentomatoes] ${url} → ${res.status}`);
       if (!res.ok) continue;
 
       const html = await res.text();

@@ -58,7 +58,8 @@ export function setStarterChips(filmId: number, chips: string[]): void {
 export function isReady(filmId: number): boolean {
   const film = store.get(filmId);
   if (!film) return false;
-  return film.sourcesLoaded.includes('tmdb') && film.sourcesLoaded.length >= 3;
+  // Ready once TMDB is loaded — scrapers may fail but pipeline completed
+  return film.sourcesLoaded.includes('tmdb');
 }
 
 // ─── Supabase (L2) operations ──────────────────────────────────────────────

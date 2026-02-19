@@ -32,7 +32,7 @@ export default function FilmPage() {
     fetch(`/api/film/${filmId}/metadata`)
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((data: FilmMetadata) => {
-        if (data.tmdbData && data.sourcesLoaded?.length >= 3) {
+        if (data.tmdbData && data.sourcesLoaded?.includes('tmdb')) {
           // Film already fully cached — skip loader entirely
           setMetadata(data);
           setBasicFilm(data.tmdbData);

@@ -36,7 +36,10 @@ async function redditGet<T>(path: string): Promise<T> {
       Accept: 'application/json',
     },
   });
-  if (!res.ok) throw new Error(`Reddit ${res.status}: ${path}`);
+  if (!res.ok) {
+    console.log(`[reddit] ${res.status} ${res.statusText} for ${path}`);
+    throw new Error(`Reddit ${res.status}: ${path}`);
+  }
   return res.json();
 }
 

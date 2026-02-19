@@ -41,12 +41,14 @@ async function findSlugViaTmdbId(tmdbId: number): Promise<string | null> {
   try {
     const res = await fetch(`${LB_BASE}/tmdb/${tmdbId}/`, {
       headers: { 'User-Agent': HEADERS['User-Agent'] },
-      redirect: 'manual', // Don't follow — we just need the Location header
+      redirect: 'manual',
     });
+    console.log(`[letterboxd] TMDB redirect: ${res.status}, location: ${res.headers.get('location') ?? 'none'}`);
     const location = res.headers.get('location') ?? '';
     const match = location.match(/\/film\/([^/]+)\/?/);
     return match ? match[1] : null;
-  } catch {
+  } catch (e) {
+    console.log(`[letterboxd] TMDB redirect failed:`, (e as Error).message);
     return null;
   }
 }

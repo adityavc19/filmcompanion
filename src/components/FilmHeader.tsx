@@ -1,6 +1,3 @@
-'use client';
-
-import { useState } from 'react';
 import Image from 'next/image';
 import type { TmdbFilm } from '@/types';
 import { getTmdbPosterUrl, extractDirector, getFilmYear } from '@/lib/tmdb';
@@ -45,8 +42,6 @@ function StarRating({ rating }: { rating: number }) {
 }
 
 export default function FilmHeader({ film, letterboxdRating, tomatometer }: Props) {
-  const [synopsisExpanded, setSynopsisExpanded] = useState(false);
-
   const director = extractDirector(film);
   const year = getFilmYear(film);
   const topCast = film.credits?.cast.slice(0, 4).map((c) => c.name) ?? [];
@@ -189,38 +184,16 @@ export default function FilmHeader({ film, letterboxdRating, tomatometer }: Prop
 
         {/* Synopsis */}
         {film.overview && (
-          <div style={{ marginTop: 16 }}>
-            <p
-              style={{
-                fontSize: 13.5,
-                lineHeight: 1.7,
-                color: '#888',
-                display: '-webkit-box',
-                WebkitLineClamp: synopsisExpanded ? 'unset' : 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: synopsisExpanded ? 'visible' : 'hidden',
-              }}
-            >
-              {film.overview}
-            </p>
-            {!synopsisExpanded && (
-              <button
-                onClick={() => setSynopsisExpanded(true)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#E8B74A',
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  marginTop: 4,
-                  fontFamily: 'inherit',
-                  fontWeight: 500,
-                }}
-              >
-                More
-              </button>
-            )}
-          </div>
+          <p
+            style={{
+              marginTop: 16,
+              fontSize: 13.5,
+              lineHeight: 1.7,
+              color: '#888',
+            }}
+          >
+            {film.overview}
+          </p>
         )}
 
         {/* Cast */}
