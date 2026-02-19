@@ -8,6 +8,8 @@ import {
   setSentiment,
   setStarterChips,
   getFilm,
+  loadFromDb,
+  saveToDb,
 } from '@/lib/knowledge-store';
 import { scrapeLetterboxd } from '@/lib/scrapers/letterboxd';
 import { scrapeReddit } from '@/lib/scrapers/reddit';
@@ -27,6 +29,8 @@ const SSE_HEADERS = {
   'X-Accel-Buffering': 'no',
 };
 
+const cached: IngestProgressEvent = { type: 'complete', cached: true };
+
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -37,14 +41,19 @@ export async function GET(
     return Response.json({ error: 'Invalid film ID' }, { status: 400 });
   }
 
-  // Already fully ingested — return immediately
+  // L1: in-memory hit
   if (hasFilm(filmId) && isReady(filmId)) {
-    const complete: IngestProgressEvent = { type: 'complete', cached: true };
-    return new Response(`data: ${JSON.stringify(complete)}\n\n`, {
-      headers: SSE_HEADERS,
-    });
+    return new Response(`data: ${JSON.stringify(cached)}\n\n`, { headers: SSE_HEADERS });
   }
 
+  // L2: Supabase hit — load into memory then return immediately
+  const fromDb = await loadFromDb(filmId);
+  if (fromDb && isReady(filmId)) {
+    console.log(`[ingest] cache hit from DB for film ${filmId}`);
+    return new Response(`data: ${JSON.stringify(cached)}\n\n`, { headers: SSE_HEADERS });
+  }
+
+  // L3: Full ingest — scrape, generate, then persist to DB
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -63,29 +72,20 @@ export async function GET(
         const tmdbData = await getFilmDetail(filmId);
         initFilm(filmId, tmdbData);
 
-        // Add TMDB overview as a chunk
         if (tmdbData.overview) {
-          const tmdbChunks = chunkText(tmdbData.overview, filmId, 'tmdb');
-          addChunks(filmId, tmdbChunks);
+          addChunks(filmId, chunkText(tmdbData.overview, filmId, 'tmdb'));
         }
         markSourceLoaded(filmId, 'tmdb');
         send({ source: 'tmdb', status: 'done', count: 1 });
 
         // Step 2: Run all scrapers in parallel
         const scraperResults = await Promise.allSettled([
-          // Letterboxd
           scrapeLetterboxd(filmId, tmdbData).then(({ chunks, rating }) => {
             if (chunks.length) {
               addChunks(filmId, chunks);
               markSourceLoaded(filmId, 'letterboxd');
               const quote = chunks[0]?.text.slice(0, 160);
-              send({
-                source: 'letterboxd',
-                status: 'done',
-                count: chunks.length,
-                quote,
-              });
-              // Store rating in knowledge store sentiment
+              send({ source: 'letterboxd', status: 'done', count: chunks.length, quote });
               if (rating) {
                 const film = getFilm(filmId);
                 if (film) film.sentiment.letterboxdRating = rating;
@@ -93,11 +93,8 @@ export async function GET(
             } else {
               send({ source: 'letterboxd', status: 'error', error: 'No reviews found' });
             }
-          }).catch((e: Error) => {
-            send({ source: 'letterboxd', status: 'error', error: e.message });
-          }),
+          }).catch((e: Error) => send({ source: 'letterboxd', status: 'error', error: e.message })),
 
-          // Reddit
           scrapeReddit(filmId, tmdbData).then((chunks) => {
             if (chunks.length) {
               addChunks(filmId, chunks);
@@ -106,11 +103,8 @@ export async function GET(
             } else {
               send({ source: 'reddit', status: 'error', error: 'No discussions found' });
             }
-          }).catch((e: Error) => {
-            send({ source: 'reddit', status: 'error', error: e.message });
-          }),
+          }).catch((e: Error) => send({ source: 'reddit', status: 'error', error: e.message })),
 
-          // Rotten Tomatoes
           scrapeRottenTomatoes(filmId, tmdbData).then(({ chunks, tomatometer }) => {
             if (chunks.length) {
               addChunks(filmId, chunks);
@@ -123,11 +117,8 @@ export async function GET(
             } else {
               send({ source: 'rottentomatoes', status: 'error', error: 'Could not load page' });
             }
-          }).catch((e: Error) => {
-            send({ source: 'rottentomatoes', status: 'error', error: e.message });
-          }),
+          }).catch((e: Error) => send({ source: 'rottentomatoes', status: 'error', error: e.message })),
 
-          // YouTube
           scrapeYoutube(filmId, tmdbData).then((chunks) => {
             if (chunks.length) {
               addChunks(filmId, chunks);
@@ -136,14 +127,12 @@ export async function GET(
             } else {
               send({ source: 'youtube', status: 'error', error: 'No transcripts available' });
             }
-          }).catch((e: Error) => {
-            send({ source: 'youtube', status: 'error', error: e.message });
-          }),
+          }).catch((e: Error) => send({ source: 'youtube', status: 'error', error: e.message })),
         ]);
 
         console.log('Scraper results:', scraperResults.map((r) => r.status));
 
-        // Step 3: Generate sentiment + starter chips from collected chunks
+        // Step 3: Generate sentiment + starter chips
         const film = getFilm(filmId);
         if (film) {
           try {
@@ -159,10 +148,13 @@ export async function GET(
           }
         }
 
+        // Step 4: Persist to Supabase (fire-and-forget — don't block SSE close)
+        saveToDb(filmId).catch((e) => console.error('saveToDb failed:', e));
+
         send({ type: 'complete' });
       } catch (err) {
         console.error('Ingest pipeline error:', err);
-        send({ type: 'complete' }); // Still signal completion to unblock UI
+        send({ type: 'complete' });
       } finally {
         controller.close();
       }

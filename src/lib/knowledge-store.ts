@@ -1,14 +1,10 @@
-/**
- * In-memory knowledge store, keyed by TMDB film ID.
- *
- * NOTE: This Map lives in the Node.js process. In local dev (next dev), it
- * persists across requests within the same process. On Vercel, each serverless
- * function invocation may be a separate instance — the cache may not persist
- * between requests. This is acceptable for the MVP; add Vercel KV post-MVP.
- */
 import type { Chunk, FilmKnowledge, SentimentSummary, SourceName, TmdbFilm } from '@/types';
+import { supabase } from '@/lib/supabase';
 
+// L1: in-process memory cache — fast, lives as long as the Railway process does
 const store = new Map<number, FilmKnowledge>();
+
+// ─── In-memory operations ──────────────────────────────────────────────────
 
 export function hasFilm(filmId: number): boolean {
   return store.has(filmId);
@@ -40,9 +36,7 @@ export function addChunks(filmId: number, newChunks: Chunk[]): void {
 export function markSourceLoaded(filmId: number, source: SourceName): void {
   const film = store.get(filmId);
   if (!film) return;
-  if (!film.sourcesLoaded.includes(source)) {
-    film.sourcesLoaded.push(source);
-  }
+  if (!film.sourcesLoaded.includes(source)) film.sourcesLoaded.push(source);
 }
 
 export function getLoadedSources(filmId: number): SourceName[] {
@@ -64,6 +58,95 @@ export function setStarterChips(filmId: number, chips: string[]): void {
 export function isReady(filmId: number): boolean {
   const film = store.get(filmId);
   if (!film) return false;
-  // Ready when TMDB + at least 2 other sources are loaded
   return film.sourcesLoaded.includes('tmdb') && film.sourcesLoaded.length >= 3;
+}
+
+// ─── Supabase (L2) operations ──────────────────────────────────────────────
+
+/**
+ * Try to load a film from Supabase into the in-memory store.
+ * Returns true if found and loaded, false if not found or on error.
+ */
+export async function loadFromDb(filmId: number): Promise<boolean> {
+  try {
+    const { data: filmRow, error: filmErr } = await supabase
+      .from('films')
+      .select('*')
+      .eq('film_id', filmId)
+      .single();
+
+    if (filmErr || !filmRow) return false;
+
+    const { data: chunkRows, error: chunkErr } = await supabase
+      .from('film_chunks')
+      .select('*')
+      .eq('film_id', filmId);
+
+    if (chunkErr) return false;
+
+    store.set(filmId, {
+      filmId,
+      tmdbData: filmRow.tmdb_data as TmdbFilm,
+      chunks: (chunkRows ?? []).map((row) => ({
+        id: row.id as string,
+        filmId: row.film_id as number,
+        source: row.source as SourceName,
+        text: row.text as string,
+        metadata: row.metadata as Record<string, string | number> | undefined,
+      })),
+      sentiment: filmRow.sentiment as SentimentSummary,
+      starterChips: filmRow.starter_chips as string[],
+      sourcesLoaded: filmRow.sources_loaded as SourceName[],
+      ingestedAt: filmRow.ingested_at as number,
+    });
+
+    return true;
+  } catch (err) {
+    console.error('loadFromDb error:', err);
+    return false;
+  }
+}
+
+/**
+ * Persist the in-memory film knowledge to Supabase.
+ * Chunks are replaced entirely (delete + re-insert in batches of 500).
+ */
+export async function saveToDb(filmId: number): Promise<void> {
+  const film = store.get(filmId);
+  if (!film) return;
+
+  try {
+    const { error: upsertErr } = await supabase.from('films').upsert({
+      film_id: film.filmId,
+      tmdb_data: film.tmdbData,
+      sentiment: film.sentiment,
+      starter_chips: film.starterChips,
+      sources_loaded: film.sourcesLoaded,
+      ingested_at: film.ingestedAt,
+    });
+
+    if (upsertErr) {
+      console.error('saveToDb upsert error:', upsertErr);
+      return;
+    }
+
+    if (film.chunks.length === 0) return;
+
+    await supabase.from('film_chunks').delete().eq('film_id', filmId);
+
+    const BATCH = 500;
+    for (let i = 0; i < film.chunks.length; i += BATCH) {
+      const batch = film.chunks.slice(i, i + BATCH).map((c) => ({
+        id: c.id,
+        film_id: c.filmId,
+        source: c.source,
+        text: c.text,
+        metadata: c.metadata ?? null,
+      }));
+      const { error: insertErr } = await supabase.from('film_chunks').insert(batch);
+      if (insertErr) console.error(`saveToDb chunk batch error at ${i}:`, insertErr);
+    }
+  } catch (err) {
+    console.error('saveToDb error:', err);
+  }
 }

@@ -1,6 +1,7 @@
 import { getFilm } from '@/lib/knowledge-store';
 import { retrieveChunks } from '@/lib/rag';
 import { streamChatResponse } from '@/lib/claude';
+import { supabase } from '@/lib/supabase';
 import type { ChatMessage, SourceName } from '@/types';
 
 export const runtime = 'nodejs';
@@ -35,11 +36,24 @@ export async function POST(request: Request) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
 
+      let fullAnswer = '';
+
       try {
         for await (const text of streamChatResponse(messages, relevantChunks, knowledge)) {
+          fullAnswer += text;
           send({ text });
         }
         send({ done: true, sources });
+
+        // Log Q&A — fire-and-forget, never delays the response
+        supabase.from('chat_logs').insert({
+          film_id: filmId,
+          question: lastUserMessage,
+          answer: fullAnswer,
+          sources_used: sources,
+        }).then(({ error }) => {
+          if (error) console.error('chat_logs insert error:', error);
+        });
       } catch (err) {
         console.error('Chat stream error:', err);
         send({ error: 'Something went wrong. Please try again.' });
