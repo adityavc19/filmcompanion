@@ -1,4 +1,4 @@
-import { getFilm } from '@/lib/knowledge-store';
+import { getFilm, loadFromDb } from '@/lib/knowledge-store';
 
 export const runtime = 'nodejs';
 
@@ -12,7 +12,15 @@ export async function GET(
     return Response.json({ error: 'Invalid film ID' }, { status: 400 });
   }
 
-  const knowledge = getFilm(filmId);
+  // L1: in-memory
+  let knowledge = getFilm(filmId);
+
+  // L2: Supabase — load into memory if not found
+  if (!knowledge) {
+    await loadFromDb(filmId);
+    knowledge = getFilm(filmId);
+  }
+
   if (!knowledge) {
     return Response.json({ error: 'Film not found' }, { status: 404 });
   }

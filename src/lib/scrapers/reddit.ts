@@ -2,10 +2,10 @@ import { chunkText } from '@/lib/chunker';
 import type { Chunk, TmdbFilm } from '@/types';
 import { getFilmYear } from '@/lib/tmdb';
 
-// Reddit exposes public .json endpoints on every page — no credentials needed.
-// Only requirement: a non-empty User-Agent header (Reddit blocks the default fetch UA).
-const REDDIT_BASE = 'https://www.reddit.com';
-const USER_AGENT = 'FilmCompanion/1.0 (film discussion app)';
+// old.reddit.com is significantly more lenient with server-side requests
+const REDDIT_BASE = 'https://old.reddit.com';
+const USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
 interface RedditPost {
   id: string;
@@ -25,6 +25,10 @@ interface RedditListing<T> {
   data: { children: { kind: string; data: T }[] };
 }
 
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function redditGet<T>(path: string): Promise<T> {
   const res = await fetch(`${REDDIT_BASE}${path}`, {
     headers: {
@@ -42,7 +46,7 @@ export async function scrapeReddit(filmId: number, film: TmdbFilm): Promise<Chun
 
   const posts: RedditPost[] = [];
 
-  // Search film-focused subreddits
+  // Search film-focused subreddits with delays between requests
   const subreddits = ['movies', 'TrueFilm', 'flicks'];
   for (const sub of subreddits) {
     try {
@@ -50,25 +54,29 @@ export async function scrapeReddit(filmId: number, film: TmdbFilm): Promise<Chun
         `/r/${sub}/search.json?q=${query}&sort=relevance&limit=5&restrict_sr=true`
       );
       const found = data.data.children
-        .filter((c) => c.kind === 't3' && c.data.score > 5)
+        .filter((c) => c.kind === 't3' && c.data.score > 2)
         .map((c) => c.data);
       posts.push(...found.slice(0, 2));
-    } catch {
-      // Subreddit unavailable — continue
+      if (posts.length >= 4) break; // Enough posts, skip remaining subs
+      await delay(600);
+    } catch (e) {
+      console.log(`[reddit] r/${sub} search failed:`, (e as Error).message);
     }
   }
 
   // Fallback: site-wide search
   if (!posts.length) {
     try {
+      await delay(600);
       const data = await redditGet<RedditListing<RedditPost>>(
         `/search.json?q=${query}+film&sort=relevance&limit=10&type=link`
       );
       const found = data.data.children
-        .filter((c) => c.kind === 't3' && c.data.score > 10)
+        .filter((c) => c.kind === 't3' && c.data.score > 3)
         .map((c) => c.data);
       posts.push(...found.slice(0, 5));
-    } catch {
+    } catch (e) {
+      console.log('[reddit] global search failed:', (e as Error).message);
       return [];
     }
   }
@@ -82,10 +90,11 @@ export async function scrapeReddit(filmId: number, film: TmdbFilm): Promise<Chun
       allText.push(`Discussion: ${post.title}`);
     }
 
-    // Fetch top comments via public .json endpoint
+    // Fetch top comments — delay between each to avoid rate limits
     try {
+      await delay(500);
       const commentData = await redditGet<[unknown, RedditListing<RedditComment>]>(
-        `${post.permalink}.json?depth=1&limit=30`
+        `${post.permalink}.json?depth=1&limit=20`
       );
       const comments = commentData[1].data.children
         .filter(
@@ -94,8 +103,8 @@ export async function scrapeReddit(filmId: number, film: TmdbFilm): Promise<Chun
             typeof c.data.body === 'string' &&
             c.data.body !== '[removed]' &&
             c.data.body !== '[deleted]' &&
-            c.data.score >= 10 &&
-            c.data.body.length > 50
+            c.data.score >= 3 &&
+            c.data.body.length > 40
         )
         .map((c) => c.data.body)
         .slice(0, 8);

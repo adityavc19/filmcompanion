@@ -6,12 +6,11 @@ import { getFilmYear } from '@/lib/tmdb';
 const LB_BASE = 'https://letterboxd.com';
 
 // More complete browser headers to reduce bot detection
-const HEADERS = {
+const HEADERS: Record<string, string> = {
   'User-Agent':
     'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9',
-  'Accept-Encoding': 'gzip, deflate, br',
   'Cache-Control': 'no-cache',
   Pragma: 'no-cache',
   'Sec-Fetch-Dest': 'document',
@@ -26,7 +25,7 @@ function delay(ms: number) {
 
 async function fetchPage(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, { headers: HEADERS });
+    const res = await fetch(url, { headers: HEADERS, redirect: 'follow' });
     if (!res.ok) return null;
     const text = await res.text();
     // Cloudflare / bot-check page detection
@@ -37,7 +36,22 @@ async function fetchPage(url: string): Promise<string | null> {
   }
 }
 
-// Build likely slug candidates from title + year (avoids a network round-trip)
+// Best method: Letterboxd supports /tmdb/{id}/ which 302-redirects to /film/{slug}/
+async function findSlugViaTmdbId(tmdbId: number): Promise<string | null> {
+  try {
+    const res = await fetch(`${LB_BASE}/tmdb/${tmdbId}/`, {
+      headers: { 'User-Agent': HEADERS['User-Agent'] },
+      redirect: 'manual', // Don't follow — we just need the Location header
+    });
+    const location = res.headers.get('location') ?? '';
+    const match = location.match(/\/film\/([^/]+)\/?/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+// Build likely slug candidates from title + year
 function slugCandidates(title: string, year: string): string[] {
   const base = title
     .toLowerCase()
@@ -54,7 +68,6 @@ function slugCandidates(title: string, year: string): string[] {
 
 async function probeSlug(slug: string): Promise<boolean> {
   try {
-    // HEAD request against the RSS feed — fast and lightweight
     const res = await fetch(`${LB_BASE}/film/${slug}/reviews/rss/`, {
       method: 'HEAD',
       headers: { 'User-Agent': HEADERS['User-Agent'] },
@@ -73,7 +86,6 @@ async function findSlugViaSearch(title: string): Promise<string | null> {
   const $ = cheerio.load(html);
   let href = '';
 
-  // Try selectors in priority order
   for (const sel of [
     '.film-list .film-detail-content h2 a',
     '.results .film-summary h2 a',
@@ -88,15 +100,27 @@ async function findSlugViaSearch(title: string): Promise<string | null> {
   return match ? match[1] : null;
 }
 
-async function findLetterboxdSlug(title: string, year: string): Promise<string | null> {
-  // 1. Try constructed slug candidates (no HTML parse needed)
-  for (const candidate of slugCandidates(title, year)) {
-    if (await probeSlug(candidate)) return candidate;
+async function findLetterboxdSlug(tmdbId: number, title: string, year: string): Promise<string | null> {
+  // 1. Best: TMDB ID redirect (works for any film Letterboxd has indexed)
+  const fromTmdb = await findSlugViaTmdbId(tmdbId);
+  if (fromTmdb) {
+    console.log(`[letterboxd] Found slug via TMDB ID: ${fromTmdb}`);
+    return fromTmdb;
   }
 
-  // 2. Fall back to Letterboxd's own search page
+  // 2. Try constructed slug candidates (no HTML parse needed)
+  for (const candidate of slugCandidates(title, year)) {
+    if (await probeSlug(candidate)) {
+      console.log(`[letterboxd] Found slug via probe: ${candidate}`);
+      return candidate;
+    }
+  }
+
+  // 3. Fall back to Letterboxd's own search page
   await delay(500);
-  return findSlugViaSearch(title);
+  const fromSearch = await findSlugViaSearch(title);
+  if (fromSearch) console.log(`[letterboxd] Found slug via search: ${fromSearch}`);
+  return fromSearch;
 }
 
 // Parse the reviews RSS feed — much more stable than scraping HTML
@@ -108,7 +132,6 @@ async function fetchReviewsRss(slug: string): Promise<string[]> {
   const reviews: string[] = [];
 
   $('item').each((_, el) => {
-    // Description contains HTML inside CDATA — strip tags
     const raw = $(el).find('description').text();
     const text = raw
       .replace(/<[^>]+>/g, ' ')
@@ -157,9 +180,12 @@ export async function scrapeLetterboxd(
   film: TmdbFilm
 ): Promise<{ chunks: Chunk[]; rating: string | null }> {
   const year = getFilmYear(film);
-  const slug = await findLetterboxdSlug(film.title, year);
+  const slug = await findLetterboxdSlug(filmId, film.title, year);
 
-  if (!slug) return { chunks: [], rating: null };
+  if (!slug) {
+    console.log(`[letterboxd] Could not find slug for "${film.title}" (${year})`);
+    return { chunks: [], rating: null };
+  }
 
   // Primary: RSS feed
   let reviews = await fetchReviewsRss(slug);
@@ -180,10 +206,14 @@ export async function scrapeLetterboxd(
 
   // Rating from main film page
   let rating: string | null = null;
+  await delay(500);
   const filmHtml = await fetchPage(`${LB_BASE}/film/${slug}/`);
   if (filmHtml) rating = extractRating(filmHtml);
 
-  if (!reviews.length) return { chunks: [], rating };
+  if (!reviews.length) {
+    console.log(`[letterboxd] Slug "${slug}" found but no reviews extracted`);
+    return { chunks: [], rating };
+  }
 
   const combined = reviews.join('\n\n---\n\n');
   const chunks = chunkText(combined, filmId, 'letterboxd', { slug, rating: rating ?? '' });

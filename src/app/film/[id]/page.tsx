@@ -23,15 +23,27 @@ export default function FilmPage() {
   const params = useParams();
   const filmId = parseInt(params.id as string, 10);
 
-  const [phase, setPhase] = useState<'loading' | 'ready'>('loading');
+  const [phase, setPhase] = useState<'checking' | 'loading' | 'ready'>('checking');
   const [metadata, setMetadata] = useState<FilmMetadata | null>(null);
   const [basicFilm, setBasicFilm] = useState<TmdbFilm | null>(null);
 
+  // On mount, check if metadata is already cached (L1 or L2) — skip loader if so
   useEffect(() => {
     fetch(`/api/film/${filmId}/metadata`)
-      .then((r) => r.json())
-      .then((data) => { if (data.tmdbData) setBasicFilm(data.tmdbData); })
-      .catch(() => {});
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((data: FilmMetadata) => {
+        if (data.tmdbData && data.sourcesLoaded?.length >= 3) {
+          // Film already fully cached — skip loader entirely
+          setMetadata(data);
+          setBasicFilm(data.tmdbData);
+          setPhase('ready');
+        } else {
+          // Partial or no data — show loader
+          if (data.tmdbData) setBasicFilm(data.tmdbData);
+          setPhase('loading');
+        }
+      })
+      .catch(() => setPhase('loading'));
   }, [filmId]);
 
   const handleReady = useCallback(async () => {
@@ -45,6 +57,14 @@ export default function FilmPage() {
     } catch { /* Proceed anyway */ }
     setPhase('ready');
   }, [filmId]);
+
+  if (phase === 'checking') {
+    return (
+      <div style={{ minHeight: '100vh', background: '#0C0C0B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ width: 24, height: 24, border: '2px solid #E8B74A', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      </div>
+    );
+  }
 
   if (phase === 'loading') {
     return (
