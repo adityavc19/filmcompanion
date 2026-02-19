@@ -102,7 +102,7 @@ export default function FilmPage() {
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
             padding: '14px 28px',
-            display: 'flex', alignItems: 'center', gap: 20,
+            display: 'flex', alignItems: 'center', gap: 32,
             background: 'linear-gradient(to bottom, #0C0C0B 70%, transparent)',
             backdropFilter: 'blur(12px)',
           }}
@@ -116,15 +116,15 @@ export default function FilmPage() {
           <Link
             href="/"
             style={{
-              display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none',
-              background: '#111110', border: '1px solid #1C1C1A', borderRadius: 8, padding: '7px 14px',
+              display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none',
+              background: '#111110', border: '1px solid #1C1C1A', borderRadius: 8, padding: '9px 18px',
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
               <circle cx="7" cy="7" r="5.5" stroke="#555" strokeWidth="1.2" />
               <path d="M11 11l3.5 3.5" stroke="#555" strokeWidth="1.2" strokeLinecap="round" />
             </svg>
-            <span style={{ fontSize: 12, color: '#555' }}>Search films</span>
+            <span style={{ fontSize: 13, color: '#555' }}>Search films</span>
           </Link>
         </nav>
 
