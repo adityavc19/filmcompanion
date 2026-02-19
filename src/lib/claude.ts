@@ -1,11 +1,13 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Anthropic from '@anthropic-ai/sdk';
 import type { Chunk, ChatMessage, FilmKnowledge } from '@/types';
 import { extractDirector, getFilmYear } from '@/lib/tmdb';
 
-const MODEL = 'gemini-2.0-flash';
+const MODEL = 'claude-sonnet-4-6';
 
-function getClient() {
-  return new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+let _client: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!_client) _client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _client;
 }
 
 export function buildSystemPrompt(knowledge: FilmKnowledge): string {
@@ -79,31 +81,36 @@ export async function* streamChatResponse(
   const contextBlock = formatChunksForContext(relevantChunks);
   const trimmedMessages = trimConversation(messages);
 
-  const genAI = getClient();
-  const model = genAI.getGenerativeModel({
-    model: MODEL,
-    systemInstruction: systemPrompt,
-  });
-
-  // Build Gemini chat history (all messages except the last user one)
-  const history = trimmedMessages.slice(0, -1).map((m) => ({
-    role: m.role === 'user' ? 'user' : 'model',
-    parts: [{ text: m.content }],
-  }));
-
-  const chat = model.startChat({ history });
-
-  // Inject context into the final user message
+  // Inject RAG context into the final user message
   const lastMessage = trimmedMessages.at(-1)!;
-  const userContent = contextBlock
+  const lastUserContent = contextBlock
     ? `Here is relevant context from reviews, discussions, and criticism:\n\n${contextBlock}\n\n---\n\nWith that context in mind: ${lastMessage.content}`
     : lastMessage.content;
 
-  const result = await chat.sendMessageStream(userContent);
+  const anthropicMessages: Anthropic.MessageParam[] = [
+    ...trimmedMessages.slice(0, -1).map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    })),
+    { role: 'user', content: lastUserContent },
+  ];
 
-  for await (const chunk of result.stream) {
-    const text = chunk.text();
-    if (text) yield text;
+  const response = await getClient().messages.create({
+    model: MODEL,
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages: anthropicMessages,
+    stream: true,
+  });
+
+  for await (const event of response) {
+    if (
+      event.type === 'content_block_delta' &&
+      event.delta.type === 'text_delta' &&
+      event.delta.text
+    ) {
+      yield event.delta.text;
+    }
   }
 }
 
@@ -132,11 +139,13 @@ Context:
 ${contextText}`;
 
   try {
-    const genAI = getClient();
-    const model = genAI.getGenerativeModel({ model: MODEL });
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const response = await getClient().messages.create({
+      model: MODEL,
+      max_tokens: 512,
+      messages: [{ role: 'user', content: prompt }],
+    });
 
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('No JSON in response');
     const parsed = JSON.parse(jsonMatch[0]);
