@@ -4,80 +4,139 @@ import type { Chunk, TmdbFilm } from '@/types';
 import { getFilmYear } from '@/lib/tmdb';
 
 const LB_BASE = 'https://letterboxd.com';
-const USER_AGENT =
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
 
+// More complete browser headers to reduce bot detection
 const HEADERS = {
-  'User-Agent': USER_AGENT,
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
   'Accept-Language': 'en-US,en;q=0.9',
   'Accept-Encoding': 'gzip, deflate, br',
+  'Cache-Control': 'no-cache',
+  Pragma: 'no-cache',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': 'none',
+  'Upgrade-Insecure-Requests': '1',
 };
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchHtml(url: string): Promise<string | null> {
+async function fetchPage(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, { headers: HEADERS });
     if (!res.ok) return null;
-    return res.text();
+    const text = await res.text();
+    // Cloudflare / bot-check page detection
+    if (text.includes('Just a moment') || text.includes('cf-browser-verification')) return null;
+    return text;
   } catch {
     return null;
   }
 }
 
-async function findLetterboxdSlug(title: string, year: string): Promise<string | null> {
+// Build likely slug candidates from title + year (avoids a network round-trip)
+function slugCandidates(title: string, year: string): string[] {
+  const base = title
+    .toLowerCase()
+    .replace(/[''`]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-');
+
+  const noLeadingThe = base.replace(/^the-/, '');
+  return [base, `${base}-${year}`, noLeadingThe, `${noLeadingThe}-${year}`].filter(
+    (s, i, arr) => s && arr.indexOf(s) === i
+  );
+}
+
+async function probeSlug(slug: string): Promise<boolean> {
+  try {
+    // HEAD request against the RSS feed — fast and lightweight
+    const res = await fetch(`${LB_BASE}/film/${slug}/reviews/rss/`, {
+      method: 'HEAD',
+      headers: { 'User-Agent': HEADERS['User-Agent'] },
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function findSlugViaSearch(title: string): Promise<string | null> {
   const encoded = encodeURIComponent(title);
-  const searchUrl = `${LB_BASE}/search/films/${encoded}/`;
-  const html = await fetchHtml(searchUrl);
+  const html = await fetchPage(`${LB_BASE}/search/films/${encoded}/`);
   if (!html) return null;
 
   const $ = cheerio.load(html);
+  let href = '';
 
-  // Find the first film result link
-  const firstResult = $('.film-list .film-detail-content h2 a, .results .film-summary h2 a, li.film-list-item a.frame').first();
-  let href = firstResult.attr('href') ?? '';
-
-  // Try alternative selectors
-  if (!href) {
-    $('a[href^="/film/"]').each((_, el) => {
-      const h = $(el).attr('href') ?? '';
-      if (h.startsWith('/film/') && !href) href = h;
-    });
+  // Try selectors in priority order
+  for (const sel of [
+    '.film-list .film-detail-content h2 a',
+    '.results .film-summary h2 a',
+    'li.film-list-item a.frame',
+    'a[href^="/film/"]',
+  ]) {
+    href = $(sel).first().attr('href') ?? '';
+    if (href.startsWith('/film/')) break;
   }
 
-  if (!href) return null;
-  // href is like /film/stalker/ → return "stalker"
   const match = href.match(/^\/film\/([^/]+)\/?/);
   return match ? match[1] : null;
 }
 
-function extractReviews(html: string): string[] {
+async function findLetterboxdSlug(title: string, year: string): Promise<string | null> {
+  // 1. Try constructed slug candidates (no HTML parse needed)
+  for (const candidate of slugCandidates(title, year)) {
+    if (await probeSlug(candidate)) return candidate;
+  }
+
+  // 2. Fall back to Letterboxd's own search page
+  await delay(500);
+  return findSlugViaSearch(title);
+}
+
+// Parse the reviews RSS feed — much more stable than scraping HTML
+async function fetchReviewsRss(slug: string): Promise<string[]> {
+  const xml = await fetchPage(`${LB_BASE}/film/${slug}/reviews/rss/`);
+  if (!xml) return [];
+
+  const $ = cheerio.load(xml, { xmlMode: true });
+  const reviews: string[] = [];
+
+  $('item').each((_, el) => {
+    // Description contains HTML inside CDATA — strip tags
+    const raw = $(el).find('description').text();
+    const text = raw
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (text.length > 80) reviews.push(text);
+  });
+
+  return reviews;
+}
+
+// HTML fallback: scrape the /reviews/by/activity/ page
+function extractReviewsFromHtml(html: string): string[] {
   const $ = cheerio.load(html);
   const reviews: string[] = [];
 
-  // Primary selector
-  $('.body-text.-prose.-truncate, .body-text.collapsible-text').each((_, el) => {
-    const text = $(el).text().trim();
-    if (text.length > 50) reviews.push(text);
-  });
-
-  // Fallback: itemprop
-  if (!reviews.length) {
-    $('[itemprop="reviewBody"], .review-body').each((_, el) => {
+  for (const sel of [
+    '.body-text.-prose.-truncate',
+    '.body-text.collapsible-text',
+    '[itemprop="reviewBody"]',
+    '.review-body',
+    '.body-text',
+  ]) {
+    $(sel).each((_, el) => {
       const text = $(el).text().trim();
-      if (text.length > 50) reviews.push(text);
+      if (text.length > 80) reviews.push(text);
     });
-  }
-
-  // Second fallback: any paragraph-rich block in a review container
-  if (!reviews.length) {
-    $('.review .body-text, .film-detail-review').each((_, el) => {
-      const text = $(el).text().trim();
-      if (text.length > 50) reviews.push(text);
-    });
+    if (reviews.length) break;
   }
 
   return reviews;
@@ -85,40 +144,48 @@ function extractReviews(html: string): string[] {
 
 function extractRating(html: string): string | null {
   const $ = cheerio.load(html);
-  // Letterboxd shows average rating in a specific element
-  const ratingEl = $('.average-rating .display-rating, [class*="average-rating"]').first();
-  if (ratingEl.length) return ratingEl.text().trim();
+  const el = $('.average-rating .display-rating, [class*="average-rating"]').first();
+  if (el.length) return el.text().trim();
 
-  // Try meta tag
   const meta = $('meta[name="twitter:description"]').attr('content') ?? '';
-  const match = meta.match(/(\d+\.?\d*) out of 5/i);
+  const match = meta.match(/(\d+\.?\d*)\s+out of 5/i);
   return match ? `${match[1]}/5` : null;
 }
 
-export async function scrapeLetterboxd(filmId: number, film: TmdbFilm): Promise<{ chunks: Chunk[]; rating: string | null }> {
+export async function scrapeLetterboxd(
+  filmId: number,
+  film: TmdbFilm
+): Promise<{ chunks: Chunk[]; rating: string | null }> {
   const year = getFilmYear(film);
   const slug = await findLetterboxdSlug(film.title, year);
 
-  if (!slug) {
-    return { chunks: [], rating: null };
+  if (!slug) return { chunks: [], rating: null };
+
+  // Primary: RSS feed
+  let reviews = await fetchReviewsRss(slug);
+
+  // Fallback: HTML scrape
+  if (!reviews.length) {
+    await delay(800);
+    const html = await fetchPage(`${LB_BASE}/film/${slug}/reviews/by/activity/`);
+    if (html) {
+      reviews = extractReviewsFromHtml(html);
+
+      // Page 2
+      await delay(800);
+      const html2 = await fetchPage(`${LB_BASE}/film/${slug}/reviews/by/activity/page/2/`);
+      if (html2) reviews.push(...extractReviewsFromHtml(html2));
+    }
   }
 
-  const reviewsUrl = `${LB_BASE}/film/${slug}/reviews/by/activity/`;
-  const html1 = await fetchHtml(reviewsUrl);
-  if (!html1) return { chunks: [], rating: null };
+  // Rating from main film page
+  let rating: string | null = null;
+  const filmHtml = await fetchPage(`${LB_BASE}/film/${slug}/`);
+  if (filmHtml) rating = extractRating(filmHtml);
 
-  const rating = extractRating(html1);
-  const reviews = extractReviews(html1);
-
-  // Fetch page 2
-  await delay(1000);
-  const html2 = await fetchHtml(`${reviewsUrl}page/2/`);
-  if (html2) {
-    reviews.push(...extractReviews(html2));
-  }
+  if (!reviews.length) return { chunks: [], rating };
 
   const combined = reviews.join('\n\n---\n\n');
   const chunks = chunkText(combined, filmId, 'letterboxd', { slug, rating: rating ?? '' });
-
   return { chunks, rating };
 }
