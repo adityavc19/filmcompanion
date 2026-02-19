@@ -1,5 +1,5 @@
 import type { Chunk, FilmKnowledge, SentimentSummary, SourceName, TmdbFilm } from '@/types';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 
 // L1: in-process memory cache — fast, lives as long as the Railway process does
 const store = new Map<number, FilmKnowledge>();
@@ -69,7 +69,7 @@ export function isReady(filmId: number): boolean {
  */
 export async function loadFromDb(filmId: number): Promise<boolean> {
   try {
-    const { data: filmRow, error: filmErr } = await supabase
+    const { data: filmRow, error: filmErr } = await getSupabase()
       .from('films')
       .select('*')
       .eq('film_id', filmId)
@@ -77,7 +77,7 @@ export async function loadFromDb(filmId: number): Promise<boolean> {
 
     if (filmErr || !filmRow) return false;
 
-    const { data: chunkRows, error: chunkErr } = await supabase
+    const { data: chunkRows, error: chunkErr } = await getSupabase()
       .from('film_chunks')
       .select('*')
       .eq('film_id', filmId);
@@ -116,7 +116,7 @@ export async function saveToDb(filmId: number): Promise<void> {
   if (!film) return;
 
   try {
-    const { error: upsertErr } = await supabase.from('films').upsert({
+    const { error: upsertErr } = await getSupabase().from('films').upsert({
       film_id: film.filmId,
       tmdb_data: film.tmdbData,
       sentiment: film.sentiment,
@@ -132,7 +132,7 @@ export async function saveToDb(filmId: number): Promise<void> {
 
     if (film.chunks.length === 0) return;
 
-    await supabase.from('film_chunks').delete().eq('film_id', filmId);
+    await getSupabase().from('film_chunks').delete().eq('film_id', filmId);
 
     const BATCH = 500;
     for (let i = 0; i < film.chunks.length; i += BATCH) {
@@ -143,7 +143,7 @@ export async function saveToDb(filmId: number): Promise<void> {
         text: c.text,
         metadata: c.metadata ?? null,
       }));
-      const { error: insertErr } = await supabase.from('film_chunks').insert(batch);
+      const { error: insertErr } = await getSupabase().from('film_chunks').insert(batch);
       if (insertErr) console.error(`saveToDb chunk batch error at ${i}:`, insertErr);
     }
   } catch (err) {

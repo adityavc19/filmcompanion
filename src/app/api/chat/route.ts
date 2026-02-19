@@ -1,7 +1,7 @@
 import { getFilm } from '@/lib/knowledge-store';
 import { retrieveChunks } from '@/lib/rag';
 import { streamChatResponse } from '@/lib/claude';
-import { supabase } from '@/lib/supabase';
+import { getSupabase } from '@/lib/supabase';
 import type { ChatMessage, SourceName } from '@/types';
 
 export const runtime = 'nodejs';
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
         send({ done: true, sources });
 
         // Log Q&A — fire-and-forget, never delays the response
-        supabase.from('chat_logs').insert({
+        getSupabase().from('chat_logs').insert({
           film_id: filmId,
           question: lastUserMessage,
           answer: fullAnswer,
