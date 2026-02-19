@@ -82,7 +82,7 @@ export default function FilmPage() {
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
             padding: '14px 28px',
-            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            display: 'flex', alignItems: 'center', gap: 20,
             background: 'linear-gradient(to bottom, #0C0C0B 70%, transparent)',
             backdropFilter: 'blur(12px)',
           }}
