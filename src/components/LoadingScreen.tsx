@@ -59,15 +59,9 @@ export default function LoadingScreen({ filmId, filmTitle, posterPath, backdropP
             },
           };
 
-          // Count loaded sources (tmdb + at least 2 others)
-          const doneCount = Object.values(updated).filter((v) => v.status === 'done').length;
-          setReadyCount(doneCount);
-
-          // Unlock if TMDB + 2 others done
-          if (updated.tmdb.status === 'done' && doneCount >= 3) {
-            // Give SSE a moment to finish sending complete signal
-            setTimeout(onReady, 500);
-          }
+          // Count settled sources (done or error) for progress bar
+          const settledCount = Object.values(updated).filter((v) => v.status === 'done' || v.status === 'error').length;
+          setReadyCount(settledCount);
 
           return updated;
         });
