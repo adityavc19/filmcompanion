@@ -3,11 +3,11 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Image from 'next/image';
+import Link from 'next/link';
 import LoadingScreen from '@/components/LoadingScreen';
 import FilmHeader from '@/components/FilmHeader';
 import SentimentSection from '@/components/SentimentSection';
 import ChatInterface from '@/components/ChatInterface';
-import SearchBar from '@/components/SearchBar';
 import type { TmdbFilm, SentimentSummary } from '@/types';
 
 interface FilmMetadata {
@@ -27,13 +27,10 @@ export default function FilmPage() {
   const [metadata, setMetadata] = useState<FilmMetadata | null>(null);
   const [basicFilm, setBasicFilm] = useState<TmdbFilm | null>(null);
 
-  // Fetch basic TMDB data for loading screen
   useEffect(() => {
     fetch(`/api/film/${filmId}/metadata`)
       .then((r) => r.json())
-      .then((data) => {
-        if (data.tmdbData) setBasicFilm(data.tmdbData);
-      })
+      .then((data) => { if (data.tmdbData) setBasicFilm(data.tmdbData); })
       .catch(() => {});
   }, [filmId]);
 
@@ -45,9 +42,7 @@ export default function FilmPage() {
         setMetadata(data);
         setBasicFilm(data.tmdbData);
       }
-    } catch {
-      // Proceed anyway
-    }
+    } catch { /* Proceed anyway */ }
     setPhase('ready');
   }, [filmId]);
 
@@ -67,73 +62,93 @@ export default function FilmPage() {
   if (!film) return null;
 
   return (
-    <div className="min-h-screen">
-      {/* Backdrop */}
+    <div style={{ minHeight: '100vh', background: '#0C0C0B', color: '#F0EDE6' }}>
+      {/* Subtle blurred backdrop */}
       {film.backdrop_path && (
-        <div className="fixed inset-0 z-0 pointer-events-none">
+        <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
           <Image
             src={`https://image.tmdb.org/t/p/w1280${film.backdrop_path}`}
             alt=""
             fill
-            className="object-cover opacity-10 blur-2xl scale-110"
+            style={{ objectFit: 'cover', opacity: 0.05, filter: 'blur(24px)', transform: 'scale(1.1)' }}
           />
-          <div className="absolute inset-0 bg-gradient-to-b from-cinema-bg/60 via-cinema-bg/80 to-cinema-bg" />
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to bottom, rgba(12,12,11,0.5), #0C0C0B)' }} />
         </div>
       )}
 
-      <div className="relative z-10">
+      <div style={{ position: 'relative', zIndex: 10 }}>
         {/* Nav */}
-        <div className="border-b border-cinema-border/40 bg-cinema-bg/80 backdrop-blur sticky top-0 z-20">
-          <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-4">
-            <a href="/" className="text-cinema-accent font-display text-lg font-semibold flex-shrink-0">
+        <nav
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, zIndex: 100,
+            padding: '14px 28px',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            background: 'linear-gradient(to bottom, #0C0C0B 70%, transparent)',
+            backdropFilter: 'blur(12px)',
+          }}
+        >
+          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#E8B74A' }} />
+            <span style={{ fontSize: 13, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#999' }}>
               Film Companion
-            </a>
-            <div className="flex-1 max-w-md">
-              <SearchBar />
-            </div>
+            </span>
+          </Link>
+          <Link
+            href="/"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none',
+              background: '#111110', border: '1px solid #1C1C1A', borderRadius: 8, padding: '7px 14px',
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+              <circle cx="7" cy="7" r="5.5" stroke="#555" strokeWidth="1.2" />
+              <path d="M11 11l3.5 3.5" stroke="#555" strokeWidth="1.2" strokeLinecap="round" />
+            </svg>
+            <span style={{ fontSize: 12, color: '#555' }}>Search films</span>
+          </Link>
+        </nav>
+
+        {/* Hero area */}
+        <div style={{ position: 'relative', paddingTop: 72 }}>
+          {/* Subtle radial warm glow behind the hero */}
+          <div
+            style={{
+              position: 'absolute', top: 0, left: 0, right: 0, height: 380,
+              background: 'radial-gradient(ellipse at 30% 20%, #1A1912 0%, #0C0C0B 70%)',
+              opacity: 0.8, pointerEvents: 'none',
+            }}
+          />
+          <div style={{ position: 'relative', maxWidth: 860, margin: '0 auto', padding: '36px 28px 0' }}>
+            <FilmHeader
+              film={film}
+              letterboxdRating={metadata?.sentiment.letterboxdRating}
+              tomatometer={metadata?.sentiment.tomatometer}
+            />
           </div>
         </div>
 
-        {/* Main content */}
-        <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
-          {/* Film header */}
-          <FilmHeader
-            film={film}
-            letterboxdRating={metadata?.sentiment.letterboxdRating}
-            tomatometer={metadata?.sentiment.tomatometer}
-          />
+        {/* Content */}
+        <div style={{ maxWidth: 860, margin: '0 auto', padding: '0 28px' }}>
+          {/* Divider */}
+          <div style={{ height: 1, background: '#171715', marginTop: 40 }} />
 
-          {/* Sentiment */}
+          {/* What People Think */}
           {metadata?.sentiment && (
-            <SentimentSection sentiment={metadata.sentiment} />
+            <div style={{ paddingTop: 36 }}>
+              <SentimentSection
+                sentiment={metadata.sentiment}
+                sourcesLoaded={metadata.sourcesLoaded}
+                chunkCount={metadata.chunkCount}
+              />
+            </div>
           )}
 
-          {/* Chat */}
-          <div className="bg-cinema-surface border border-cinema-border rounded-xl p-5">
-            <ChatInterface
-              filmId={filmId}
-              starterChips={metadata?.starterChips ?? []}
-            />
-          </div>
-
-          {/* Sources footer */}
-          {metadata && metadata.sourcesLoaded.length > 0 && (
-            <p className="text-cinema-muted/50 text-xs text-center">
-              Sources: {metadata.sourcesLoaded
-                .filter((s) => s !== 'tmdb')
-                .map((s) => {
-                  const labels: Record<string, string> = {
-                    letterboxd: 'Letterboxd',
-                    reddit: 'Reddit',
-                    rottentomatoes: 'Rotten Tomatoes',
-                    youtube: 'YouTube',
-                  };
-                  return labels[s] ?? s;
-                })
-                .join(' · ')}
-              {' '}· {metadata.chunkCount} knowledge chunks
-            </p>
-          )}
+          {/* Discuss */}
+          <ChatInterface
+            filmId={filmId}
+            filmTitle={film.title}
+            starterChips={metadata?.starterChips ?? []}
+          />
         </div>
       </div>
     </div>

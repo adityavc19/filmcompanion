@@ -72,8 +72,8 @@ export default function SearchBar({ autoFocus = false }: { autoFocus?: boolean }
   };
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-2xl mx-auto">
-      <div className="relative">
+    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+      <div style={{ position: 'relative' }}>
         <input
           ref={inputRef}
           autoFocus={autoFocus}
@@ -83,52 +83,83 @@ export default function SearchBar({ autoFocus = false }: { autoFocus?: boolean }
           onKeyDown={handleKeyDown}
           onFocus={() => suggestions.length > 0 && setOpen(true)}
           placeholder="Search for a film..."
-          className="w-full px-5 py-4 bg-cinema-surface border border-cinema-border rounded-xl text-white placeholder-cinema-muted text-lg focus:outline-none focus:border-cinema-accent/60 focus:ring-1 focus:ring-cinema-accent/30 transition-all"
+          style={{
+            width: '100%',
+            padding: '16px 48px 16px 20px',
+            background: 'rgba(12,12,11,0.6)',
+            backdropFilter: 'blur(16px)',
+            WebkitBackdropFilter: 'blur(16px)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 12,
+            color: '#F0EDE6',
+            fontSize: 16,
+            fontFamily: 'var(--font-dm-sans), sans-serif',
+            outline: 'none',
+            transition: 'border-color 0.2s',
+          }}
+          onFocusCapture={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(232,183,74,0.45)';
+            if (suggestions.length > 0) setOpen(true);
+          }}
+          onBlurCapture={(e) => {
+            e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)';
+          }}
         />
-        <div className="absolute right-4 top-1/2 -translate-y-1/2 text-cinema-muted">
+        <div style={{ position: 'absolute', right: 16, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)' }}>
           {loading ? (
-            <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            <svg style={{ animation: 'spin 1s linear infinite' }} width="18" height="18" fill="none" viewBox="0 0 24 24">
+              <circle style={{ opacity: 0.25 }} cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path style={{ opacity: 0.75 }} fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
           ) : (
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
             </svg>
           )}
         </div>
       </div>
 
       {open && suggestions.length > 0 && (
-        <div className="absolute top-full mt-2 w-full bg-cinema-surface border border-cinema-border rounded-xl shadow-2xl z-50 overflow-hidden">
+        <div style={{
+          position: 'absolute', top: '100%', marginTop: 8, width: '100%',
+          background: '#111110', border: '1px solid #1C1C1A',
+          borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.7)',
+          zIndex: 50, overflow: 'hidden',
+        }}>
           {suggestions.map((film, i) => (
             <button
               key={film.id}
-              className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
-                i === activeIndex ? 'bg-cinema-accent/10' : 'hover:bg-white/5'
-              } ${i < suggestions.length - 1 ? 'border-b border-cinema-border' : ''}`}
               onMouseDown={() => selectFilm(film)}
               onMouseEnter={() => setActiveIndex(i)}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 14px', textAlign: 'left', border: 'none', cursor: 'pointer',
+                background: i === activeIndex ? 'rgba(232,183,74,0.06)' : 'transparent',
+                borderBottom: i < suggestions.length - 1 ? '1px solid #1A1A18' : 'none',
+                transition: 'background 0.15s',
+              }}
             >
-              <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-cinema-border">
+              <div style={{ width: 32, height: 48, flexShrink: 0, borderRadius: 4, overflow: 'hidden', background: '#1A1816' }}>
                 {film.poster_path ? (
                   <Image
                     src={getTmdbPosterUrl(film.poster_path, 'w185')}
                     alt={film.title}
                     width={32}
                     height={48}
-                    className="object-cover w-full h-full"
+                    style={{ objectFit: 'cover', width: '100%', height: '100%' }}
                   />
-                ) : (
-                  <div className="w-full h-full bg-cinema-border" />
-                )}
+                ) : null}
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-white font-medium truncate">{film.title}</div>
-                <div className="text-cinema-muted text-sm">{getFilmYear(film)}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ color: '#F0EDE6', fontSize: 14, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--font-dm-sans), sans-serif' }}>
+                  {film.title}
+                </div>
+                <div style={{ color: '#555', fontSize: 12, marginTop: 2, fontFamily: 'var(--font-dm-sans), sans-serif' }}>
+                  {getFilmYear(film)}
+                </div>
               </div>
               {film.vote_average > 0 && (
-                <div className="text-cinema-accent text-sm font-medium flex-shrink-0">
+                <div style={{ color: '#E8B74A', fontSize: 12, fontWeight: 500, flexShrink: 0, fontFamily: 'var(--font-dm-sans), sans-serif' }}>
                   ★ {film.vote_average.toFixed(1)}
                 </div>
               )}
