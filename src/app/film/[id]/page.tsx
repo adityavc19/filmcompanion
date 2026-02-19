@@ -117,7 +117,7 @@ export default function FilmPage() {
             href="/"
             style={{
               display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none',
-              background: '#111110', border: '1px solid #1C1C1A', borderRadius: 8, padding: '9px 18px',
+              background: '#111110', border: '1px solid #1C1C1A', borderRadius: 8, padding: '9px 28px',
             }}
           >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
