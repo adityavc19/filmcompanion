@@ -237,10 +237,10 @@ function SummaryContent() {
           </button>
 
           <Link
-            href={`/film/${filmId}/discuss`}
+            href={`/film/${filmId}`}
             className="block w-full py-4 bg-surface text-text text-center font-medium text-base rounded-xl transition-all hover:bg-surface-hover active:scale-[0.98]"
           >
-            Go deeper →
+            Go to film page →
           </Link>
         </div>
 
