@@ -16,7 +16,7 @@ export default function Home() {
         {/* Poster section */}
         <div className="relative w-full aspect-[2/3] max-h-[55vh]">
           <Image
-            src="https://image.tmdb.org/t/p/w780/6WxhEvuvOQOKwSGLmjCrNKHbOA1.jpg"
+            src="https://image.tmdb.org/t/p/w780/cgXk2tNYhJZLXdBDO5DidAVzQ82.jpg"
             alt="Anora movie poster"
             fill
             className="object-cover"
