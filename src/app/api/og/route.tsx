@@ -1,6 +1,5 @@
 import { ImageResponse } from "@vercel/og";
 import { type NextRequest } from "next/server";
-import { ANORA_CARDS } from "@/lib/cards";
 
 export const runtime = "edge";
 
@@ -10,20 +9,18 @@ export async function GET(request: NextRequest) {
 
   let positions = [50, 50, 50];
   let rating = 0;
+  let filmTitle = "Film Companion";
 
   if (d) {
     try {
       const data = JSON.parse(atob(decodeURIComponent(d)));
       positions = data.positions?.slice(0, 3) ?? positions;
       rating = data.rating ?? 0;
+      filmTitle = data.filmTitle ?? filmTitle;
     } catch {
-      // Use defaults
+      // defaults
     }
   }
-
-  // Pick Card 2 (the ending) as the featured provocation per spec
-  const featuredCard = ANORA_CARDS[1];
-  const featuredPosition = positions[1] >= 0 ? positions[1] : 50;
 
   return new ImageResponse(
     (
@@ -32,150 +29,95 @@ export async function GET(request: NextRequest) {
           width: "1200px",
           height: "630px",
           display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
           backgroundColor: "#0D0D0C",
           color: "#F0EDE6",
           fontFamily: "system-ui, sans-serif",
-          padding: "60px",
+          padding: "60px 80px",
         }}
       >
-        {/* Left: poster */}
         <div
           style={{
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            marginRight: "50px",
+            fontSize: "13px",
+            letterSpacing: "0.15em",
+            color: "#E8B74A",
+            marginBottom: "16px",
+            textTransform: "uppercase",
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="https://image.tmdb.org/t/p/w300/cgXk2tNYhJZLXdBDO5DidAVzQ82.jpg"
-            alt="Anora"
-            width={180}
-            height={270}
-            style={{ borderRadius: "8px" }}
-          />
-          {rating > 0 && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                marginTop: "12px",
-                fontSize: "18px",
-                color: "#E8B74A",
-              }}
-            >
-              {"★".repeat(Math.floor(rating))}
-              {rating % 1 >= 0.5 ? "½" : ""} {rating}/5
-            </div>
-          )}
+          Film Companion
         </div>
 
-        {/* Right: provocation + position */}
         <div
           style={{
-            display: "flex",
-            flexDirection: "column",
-            justifyContent: "center",
-            flex: 1,
+            fontSize: "48px",
+            fontWeight: 700,
+            marginBottom: "24px",
           }}
         >
-          <div
-            style={{
-              fontSize: "13px",
-              letterSpacing: "0.15em",
-              color: "#E8B74A",
-              marginBottom: "16px",
-              textTransform: "uppercase",
-            }}
-          >
-            {featuredCard.type}
-          </div>
+          {filmTitle}
+        </div>
 
-          <div
-            style={{
-              fontSize: "22px",
-              lineHeight: "1.5",
-              color: "#F0EDE6",
-              marginBottom: "40px",
-              maxWidth: "700px",
-            }}
-          >
-            {featuredCard.provocation.length > 180
-              ? featuredCard.provocation.slice(0, 180) + "..."
-              : featuredCard.provocation}
-          </div>
-
-          {/* Spectrum bar */}
+        {rating > 0 && (
           <div
             style={{
               display: "flex",
-              flexDirection: "column",
-              width: "100%",
-              maxWidth: "500px",
+              fontSize: "24px",
+              color: "#E8B74A",
+              marginBottom: "32px",
             }}
           >
+            {"★".repeat(Math.floor(rating))}
+            {rating % 1 >= 0.5 ? "½" : ""}
+          </div>
+        )}
+
+        {/* Position bars */}
+        <div
+          style={{
+            display: "flex",
+            gap: "16px",
+            marginBottom: "40px",
+          }}
+        >
+          {positions.slice(0, 3).map((pos, i) => (
             <div
+              key={i}
               style={{
                 display: "flex",
                 position: "relative",
                 height: "8px",
                 backgroundColor: "#1A1A18",
                 borderRadius: "4px",
-                width: "100%",
+                width: "200px",
               }}
             >
-              <div
-                style={{
-                  position: "absolute",
-                  top: "-6px",
-                  left: `${featuredPosition}%`,
-                  width: "20px",
-                  height: "20px",
-                  borderRadius: "50%",
-                  backgroundColor: "#E8B74A",
-                  transform: "translateX(-50%)",
-                }}
-              />
+              {pos >= 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "-6px",
+                    left: `${pos}%`,
+                    width: "20px",
+                    height: "20px",
+                    borderRadius: "50%",
+                    backgroundColor: "#E8B74A",
+                    transform: "translateX(-50%)",
+                  }}
+                />
+              )}
             </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginTop: "8px",
-                fontSize: "13px",
-                color: "#8A8780",
-              }}
-            >
-              <span>{featuredCard.leftPole}</span>
-              <span>{featuredCard.rightPole}</span>
-            </div>
-          </div>
+          ))}
+        </div>
 
-          {/* CTA */}
-          <div
-            style={{
-              fontSize: "28px",
-              fontWeight: 600,
-              color: "#F0EDE6",
-              marginTop: "40px",
-            }}
-          >
-            Where do you land?
-          </div>
-
-          {/* Branding */}
-          <div
-            style={{
-              fontSize: "12px",
-              color: "#8A8780",
-              marginTop: "16px",
-              letterSpacing: "0.1em",
-            }}
-          >
-            FILM COMPANION
-          </div>
+        <div
+          style={{
+            fontSize: "28px",
+            fontWeight: 600,
+          }}
+        >
+          Where do you land?
         </div>
       </div>
     ),

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, type FormEvent } from "react";
-import { generateOpener } from "@/lib/chat-opener";
 import { track } from "@/lib/analytics";
 
 interface Message {
@@ -13,11 +12,17 @@ interface Message {
 interface ChatInterfaceProps {
   positions: number[];
   texts: string[];
+  filmTitle?: string;
+  filmYear?: string;
+  cardLabels?: { type: string; leftPole?: string; rightPole?: string }[];
 }
 
 export default function ChatInterface({
   positions,
   texts,
+  filmTitle = "this film",
+  filmYear = "",
+  cardLabels = [],
 }: ChatInterfaceProps) {
   const [started, setStarted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -25,13 +30,13 @@ export default function ChatInterface({
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Initialize with opener on start
+  // Generate a simple opener based on positions
   useEffect(() => {
     if (started && messages.length === 0) {
-      const opener = generateOpener(positions);
+      const opener = `You just went through the provocation cards for ${filmTitle}. Your positions tell an interesting story — what's the thing about this film you're still turning over?`;
       setMessages([{ id: "opener", role: "assistant", content: opener }]);
     }
-  }, [started, messages.length, positions]);
+  }, [started, messages.length, filmTitle]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -64,17 +69,18 @@ export default function ChatInterface({
               role: m.role,
               content: m.content,
             })),
+            filmTitle,
+            filmYear,
             positions,
             texts,
+            cardLabels,
           }),
         });
 
-        if (!res.ok) {
-          throw new Error(`Chat failed: ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Chat failed: ${res.status}`);
 
         const reader = res.body?.getReader();
-        if (!reader) throw new Error("No response body");
+        if (!reader) throw new Error("No body");
 
         const assistantId = `assistant-${Date.now()}`;
         let content = "";
@@ -100,15 +106,14 @@ export default function ChatInterface({
           {
             id: `error-${Date.now()}`,
             role: "assistant",
-            content:
-              "Something went wrong. Make sure the ANTHROPIC_API_KEY is set in your environment.",
+            content: "Something went wrong. Check that the Gemini API key is set.",
           },
         ]);
       } finally {
         setIsLoading(false);
       }
     },
-    [messages, positions, texts]
+    [messages, positions, texts, filmTitle, filmYear, cardLabels]
   );
 
   const handleSubmit = (e: FormEvent) => {
@@ -133,7 +138,6 @@ export default function ChatInterface({
 
   return (
     <div className="flex flex-col bg-surface rounded-xl overflow-hidden">
-      {/* Messages */}
       <div className="flex-1 max-h-[50vh] overflow-y-auto p-4 space-y-4">
         {messages.map((msg) => (
           <div
@@ -163,12 +167,11 @@ export default function ChatInterface({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
       <form onSubmit={handleSubmit} className="flex gap-2 p-3 border-t border-text/5">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask anything about Anora..."
+          placeholder={`Ask anything about ${filmTitle}...`}
           className="flex-1 bg-bg text-text text-sm rounded-lg px-4 py-3 placeholder:text-muted/50 focus:outline-none focus:ring-1 focus:ring-accent/30"
           disabled={isLoading}
         />

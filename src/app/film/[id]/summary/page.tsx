@@ -1,25 +1,43 @@
 "use client";
 
 import { useState, useEffect, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useParams } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import StarRating from "@/components/StarRating";
 import ChatInterface from "@/components/ChatInterface";
-import { ANORA_CARDS } from "@/lib/cards";
+import { type FilmProvocations } from "@/lib/cards";
+import { logFilm } from "@/lib/journal";
 import { track } from "@/lib/analytics";
 import { encodeShareData } from "@/lib/share";
 
-interface SequenceData {
+interface SummaryData {
   positions: number[];
   texts: string[];
+  provocations: FilmProvocations & {
+    filmTitle?: string;
+    filmYear?: string;
+    filmDirector?: string;
+    posterPath?: string;
+  };
 }
 
 function SummaryContent() {
   const searchParams = useSearchParams();
-  const [data, setData] = useState<SequenceData | null>(null);
+  const params = useParams();
+  const filmId = params.id as string;
+  const [data, setData] = useState<SummaryData | null>(null);
   const [rating, setRating] = useState(0);
   const [shared, setShared] = useState(false);
+  const [logged, setLogged] = useState(false);
+  const [filmMeta, setFilmMeta] = useState<{
+    title: string;
+    year: string;
+    director: string;
+    posterPath: string | null;
+  } | null>(null);
 
+  // Parse sequence data
   useEffect(() => {
     const d = searchParams.get("d");
     if (d) {
@@ -28,18 +46,65 @@ function SummaryContent() {
         setData(parsed);
         track("summary_view");
       } catch {
-        // Invalid data
+        // Invalid
       }
     }
   }, [searchParams]);
 
+  // Fetch film metadata
+  useEffect(() => {
+    async function loadFilm() {
+      try {
+        const res = await fetch(
+          `https://api.themoviedb.org/3/movie/${filmId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY}&append_to_response=credits`
+        );
+        if (!res.ok) return;
+        const film = await res.json();
+        const dir =
+          film.credits?.crew?.find(
+            (c: { job: string }) => c.job === "Director"
+          )?.name ?? "Unknown";
+        setFilmMeta({
+          title: film.title,
+          year: film.release_date?.split("-")[0] ?? "",
+          director: dir,
+          posterPath: film.poster_path,
+        });
+      } catch {
+        // Fallback
+      }
+    }
+    loadFilm();
+  }, [filmId]);
+
+  // Log film when rating is set
+  useEffect(() => {
+    if (rating > 0 && filmMeta && data && !logged) {
+      logFilm({
+        filmId: Number(filmId),
+        title: filmMeta.title,
+        year: filmMeta.year,
+        posterPath: filmMeta.posterPath,
+        director: filmMeta.director,
+        positions: data.positions,
+        texts: data.texts,
+        rating,
+        loggedAt: new Date().toISOString(),
+      });
+      setLogged(true);
+      track("rating_set", { rating_value: rating });
+    }
+  }, [rating, filmMeta, data, filmId, logged]);
+
   if (!data) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-bg text-muted">
-        <p>No positions found. Start from the beginning.</p>
+        <p>No positions found.</p>
       </div>
     );
   }
+
+  const cards = data.provocations?.cards?.filter((c) => c.hasSlider) ?? [];
 
   const handleShare = async () => {
     const sharePayload = encodeShareData({
@@ -48,20 +113,18 @@ function SummaryContent() {
       rating,
     });
     const shareUrl = `${window.location.origin}/s/${sharePayload}`;
-    const shareText = "My take on Anora — where do you land?";
+    const shareText = `My take on ${filmMeta?.title ?? "this film"} — where do you land?`;
 
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "Film Companion — Anora",
+          title: `Film Companion — ${filmMeta?.title}`,
           text: shareText,
           url: shareUrl,
         });
         track("share_complete", { share_method: "native" });
         setShared(true);
-      } catch {
-        // User cancelled
-      }
+      } catch { /* cancelled */ }
     } else {
       await navigator.clipboard.writeText(shareUrl);
       track("share_complete", { share_method: "copy_link" });
@@ -70,10 +133,13 @@ function SummaryContent() {
     }
   };
 
-  const handleRatingChange = (value: number) => {
-    setRating(value);
-    track("rating_set", { rating_value: value });
-  };
+  const cardLabels = data.provocations?.cards
+    ?.filter((c) => c.hasSlider)
+    .map((c) => ({
+      type: c.type,
+      leftPole: c.leftPole,
+      rightPole: c.rightPole,
+    })) ?? [];
 
   return (
     <div className="flex flex-col min-h-screen bg-bg text-text">
@@ -85,41 +151,48 @@ function SummaryContent() {
 
         {/* Film card */}
         <div className="flex gap-4 mb-8">
-          <div className="relative w-16 h-24 rounded-md overflow-hidden flex-shrink-0">
-            <Image
-              src="https://image.tmdb.org/t/p/w200/cgXk2tNYhJZLXdBDO5DidAVzQ82.jpg"
-              alt="Anora"
-              fill
-              className="object-cover"
-              sizes="64px"
-            />
-          </div>
+          {filmMeta?.posterPath && (
+            <div className="relative w-16 h-24 rounded-md overflow-hidden flex-shrink-0">
+              <Image
+                src={`https://image.tmdb.org/t/p/w200${filmMeta.posterPath}`}
+                alt={filmMeta?.title ?? "Film"}
+                fill
+                className="object-cover"
+                sizes="64px"
+              />
+            </div>
+          )}
           <div>
-            <h1 className="text-xl font-semibold">Anora</h1>
-            <p className="text-sm text-muted">Sean Baker &middot; 2024</p>
+            <h1 className="text-xl font-semibold">
+              {filmMeta?.title ?? "Film"}
+            </h1>
+            <p className="text-sm text-muted">
+              {filmMeta?.director} &middot; {filmMeta?.year}
+            </p>
+            {logged && (
+              <p className="text-xs text-accent mt-1">✓ Logged to journal</p>
+            )}
           </div>
         </div>
 
         {/* Star rating */}
         <div className="mb-8">
           <p className="text-sm text-muted mb-3">Your rating</p>
-          <StarRating value={rating} onChange={handleRatingChange} />
+          <StarRating value={rating} onChange={setRating} />
         </div>
 
         {/* Position bars */}
         <div className="flex flex-col gap-6 mb-8">
-          {ANORA_CARDS.filter((c) => c.hasSlider).map((card, idx) => {
+          {cards.map((card, idx) => {
             const position = data.positions[idx];
             const text = data.texts[idx];
             const hasPosition = position >= 0;
 
             return (
               <div key={card.id}>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-xs font-mono tracking-[0.1em] uppercase text-accent">
-                    {card.type}
-                  </span>
-                </div>
+                <span className="text-xs font-mono tracking-[0.1em] uppercase text-accent mb-2 block">
+                  {card.type}
+                </span>
                 {hasPosition && (
                   <div className="relative h-3 bg-surface rounded-full mb-2">
                     <div
@@ -146,7 +219,7 @@ function SummaryContent() {
           })}
         </div>
 
-        {/* Open prompt text */}
+        {/* Open prompt */}
         {data.texts[3] && (
           <div className="mb-8 p-4 rounded-lg bg-surface">
             <p className="text-xs font-mono tracking-[0.1em] uppercase text-accent mb-2">
@@ -167,15 +240,33 @@ function SummaryContent() {
             {shared ? "Link copied!" : "Share your take"}
           </button>
 
-          {/* Chat — "Go deeper" button expands into full chat */}
-          <ChatInterface positions={data.positions} texts={data.texts} />
+          <ChatInterface
+            positions={data.positions}
+            texts={data.texts}
+            filmTitle={filmMeta?.title ?? "this film"}
+            filmYear={filmMeta?.year ?? ""}
+            cardLabels={cardLabels}
+          />
+        </div>
+
+        {/* Nav */}
+        <div className="flex justify-between pt-4 pb-6">
+          <Link href="/" className="text-sm text-muted hover:text-accent">
+            ← Home
+          </Link>
+          <Link
+            href="/journal"
+            className="text-sm text-muted hover:text-accent"
+          >
+            Journal →
+          </Link>
         </div>
       </div>
     </div>
   );
 }
 
-export default function SummaryPage() {
+export default function FilmSummaryPage() {
   return (
     <Suspense
       fallback={

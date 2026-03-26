@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
-import { ANORA_CARDS } from "@/lib/cards";
+import { useRouter, useParams } from "next/navigation";
+import { type ProvocationCard as CardType, type FilmProvocations } from "@/lib/cards";
 import { track } from "@/lib/analytics";
 import ProvocationCard from "@/components/ProvocationCard";
 
@@ -15,22 +15,47 @@ interface CardState {
 
 export default function SequencePage() {
   const router = useRouter();
+  const params = useParams();
+  const filmId = params.id as string;
+
+  const [provocations, setProvocations] = useState<FilmProvocations | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [direction, setDirection] = useState(0);
-  const [cardStates, setCardStates] = useState<CardState[]>(
-    ANORA_CARDS.map(() => ({
-      sliderValue: null,
-      writtenText: "",
-      sliderTouched: false,
-    }))
-  );
+  const [cardStates, setCardStates] = useState<CardState[]>([]);
 
-  const currentCard = ANORA_CARDS[currentIndex];
+  // Fetch provocations from Gemini
+  useEffect(() => {
+    async function loadProvocations() {
+      try {
+        const res = await fetch(`/api/provocations?filmId=${filmId}`);
+        if (!res.ok) throw new Error("Failed to load");
+        const data: FilmProvocations = await res.json();
+        setProvocations(data);
+        setCardStates(
+          data.cards.map(() => ({
+            sliderValue: null,
+            writtenText: "",
+            sliderTouched: false,
+          }))
+        );
+      } catch {
+        setError("Couldn't generate provocations. Try again.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadProvocations();
+  }, [filmId]);
+
+  const cards = provocations?.cards ?? [];
+  const currentCard = cards[currentIndex];
   const currentState = cardStates[currentIndex];
-  const canAdvance = currentCard.hasSlider
-    ? currentState.sliderTouched
-    : true; // Card 4 (open prompt) can always advance
-  const isLastCard = currentIndex === ANORA_CARDS.length - 1;
+  const canAdvance = currentCard?.hasSlider
+    ? currentState?.sliderTouched
+    : true;
+  const isLastCard = currentIndex === cards.length - 1;
 
   const updateCardState = useCallback(
     (index: number, updates: Partial<CardState>) => {
@@ -46,23 +71,26 @@ export default function SequencePage() {
   const goNext = useCallback(() => {
     if (!canAdvance) return;
 
-    // Track card advance
     track("card_advance", {
       card_number: currentIndex + 1,
-      spectrum_position: currentState.sliderValue,
-      wrote_reaction: currentState.writtenText.length > 0,
+      spectrum_position: currentState?.sliderValue,
+      wrote_reaction: (currentState?.writtenText?.length ?? 0) > 0,
     });
 
     if (isLastCard) {
       const positions = cardStates.map((s) => s.sliderValue ?? -1);
       const texts = cardStates.map((s) => s.writtenText);
-      const payload = btoa(JSON.stringify({ positions, texts }));
-      router.push(`/summary?d=${encodeURIComponent(payload)}`);
+      const payload = btoa(
+        JSON.stringify({ positions, texts, provocations })
+      );
+      router.push(
+        `/film/${filmId}/summary?d=${encodeURIComponent(payload)}`
+      );
       return;
     }
     setDirection(1);
     setCurrentIndex((i) => i + 1);
-  }, [canAdvance, isLastCard, currentIndex, currentState, cardStates, router]);
+  }, [canAdvance, isLastCard, currentIndex, currentState, cardStates, provocations, filmId, router]);
 
   const goBack = useCallback(() => {
     if (currentIndex === 0) return;
@@ -70,44 +98,50 @@ export default function SequencePage() {
     setCurrentIndex((i) => i - 1);
   }, [currentIndex]);
 
-  // Swipe handling
   const handleDragEnd = useCallback(
     (_: unknown, info: { offset: { x: number }; velocity: { x: number } }) => {
-      const threshold = 50;
-      const velocityThreshold = 300;
-      if (
-        info.offset.x < -threshold ||
-        info.velocity.x < -velocityThreshold
-      ) {
-        goNext();
-      } else if (
-        info.offset.x > threshold ||
-        info.velocity.x > velocityThreshold
-      ) {
-        goBack();
-      }
+      if (info.offset.x < -50 || info.velocity.x < -300) goNext();
+      else if (info.offset.x > 50 || info.velocity.x > 300) goBack();
     },
     [goNext, goBack]
   );
 
   const variants = {
-    enter: (dir: number) => ({
-      x: dir > 0 ? "100%" : "-100%",
-      opacity: 0,
-    }),
+    enter: (dir: number) => ({ x: dir > 0 ? "100%" : "-100%", opacity: 0 }),
     center: { x: 0, opacity: 1 },
-    exit: (dir: number) => ({
-      x: dir > 0 ? "-100%" : "100%",
-      opacity: 0,
-    }),
+    exit: (dir: number) => ({ x: dir > 0 ? "-100%" : "100%", opacity: 0 }),
   };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col min-h-screen bg-bg text-text items-center justify-center gap-4">
+        <div className="w-8 h-8 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+        <p className="text-sm text-muted">Generating provocations...</p>
+        <p className="text-xs text-muted/60">Reading the discourse on this film</p>
+      </div>
+    );
+  }
+
+  if (error || !provocations || cards.length === 0) {
+    return (
+      <div className="flex flex-col min-h-screen bg-bg text-text items-center justify-center gap-4 px-6">
+        <p className="text-sm text-muted">{error || "Something went wrong."}</p>
+        <button
+          onClick={() => router.back()}
+          className="text-sm text-accent hover:underline"
+        >
+          ← Go back
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col min-h-screen bg-bg text-text overflow-hidden">
       <div className="w-full max-w-[430px] mx-auto flex flex-col min-h-screen relative">
         {/* Progress dots */}
         <div className="flex justify-center gap-2 pt-5 pb-2 px-6 z-20">
-          {ANORA_CARDS.map((_, i) => (
+          {cards.map((_: CardType, i: number) => (
             <div
               key={i}
               className={`h-1 rounded-full transition-all duration-300 ${
@@ -143,7 +177,7 @@ export default function SequencePage() {
             >
               <ProvocationCard
                 card={currentCard}
-                totalCards={ANORA_CARDS.length}
+                totalCards={cards.length}
                 sliderValue={currentState.sliderValue}
                 onSliderChange={(val) =>
                   updateCardState(currentIndex, {
@@ -163,7 +197,7 @@ export default function SequencePage() {
           </AnimatePresence>
         </div>
 
-        {/* Navigation buttons */}
+        {/* Navigation */}
         <div className="flex justify-between items-center px-6 py-4 z-20">
           <button
             onClick={goBack}
