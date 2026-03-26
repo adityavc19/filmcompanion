@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { ANORA_CARDS } from "@/lib/cards";
+import { track } from "@/lib/analytics";
 import ProvocationCard from "@/components/ProvocationCard";
 
 interface CardState {
@@ -44,19 +45,24 @@ export default function SequencePage() {
 
   const goNext = useCallback(() => {
     if (!canAdvance) return;
+
+    // Track card advance
+    track("card_advance", {
+      card_number: currentIndex + 1,
+      spectrum_position: currentState.sliderValue,
+      wrote_reaction: currentState.writtenText.length > 0,
+    });
+
     if (isLastCard) {
-      // Navigate to summary with state encoded in URL
       const positions = cardStates.map((s) => s.sliderValue ?? -1);
       const texts = cardStates.map((s) => s.writtenText);
-      const payload = btoa(
-        JSON.stringify({ positions, texts })
-      );
+      const payload = btoa(JSON.stringify({ positions, texts }));
       router.push(`/summary?d=${encodeURIComponent(payload)}`);
       return;
     }
     setDirection(1);
     setCurrentIndex((i) => i + 1);
-  }, [canAdvance, isLastCard, currentIndex, cardStates, router]);
+  }, [canAdvance, isLastCard, currentIndex, currentState, cardStates, router]);
 
   const goBack = useCallback(() => {
     if (currentIndex === 0) return;

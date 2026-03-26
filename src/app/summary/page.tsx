@@ -4,7 +4,10 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Image from "next/image";
 import StarRating from "@/components/StarRating";
+import ChatInterface from "@/components/ChatInterface";
 import { ANORA_CARDS } from "@/lib/cards";
+import { track } from "@/lib/analytics";
+import { encodeShareData } from "@/lib/share";
 
 interface SequenceData {
   positions: number[];
@@ -23,8 +26,9 @@ function SummaryContent() {
       try {
         const parsed = JSON.parse(atob(decodeURIComponent(d)));
         setData(parsed);
+        track("summary_view");
       } catch {
-        // Invalid data, stay null
+        // Invalid data
       }
     }
   }, [searchParams]);
@@ -38,26 +42,42 @@ function SummaryContent() {
   }
 
   const handleShare = async () => {
-    const shareUrl = window.location.href;
-    const shareText = `My take on Anora — where do you land?`;
+    const sharePayload = encodeShareData({
+      positions: data.positions,
+      texts: data.texts,
+      rating,
+    });
+    const shareUrl = `${window.location.origin}/s/${sharePayload}`;
+    const shareText = "My take on Anora — where do you land?";
 
     if (navigator.share) {
       try {
-        await navigator.share({ title: "Film Companion — Anora", text: shareText, url: shareUrl });
+        await navigator.share({
+          title: "Film Companion — Anora",
+          text: shareText,
+          url: shareUrl,
+        });
+        track("share_complete", { share_method: "native" });
         setShared(true);
       } catch {
-        // User cancelled share
+        // User cancelled
       }
     } else {
       await navigator.clipboard.writeText(shareUrl);
+      track("share_complete", { share_method: "copy_link" });
       setShared(true);
       setTimeout(() => setShared(false), 2000);
     }
   };
 
+  const handleRatingChange = (value: number) => {
+    setRating(value);
+    track("rating_set", { rating_value: value });
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-bg text-text">
-      <div className="w-full max-w-[430px] mx-auto flex flex-col min-h-screen px-6 py-6">
+      <div className="w-full max-w-[430px] mx-auto flex flex-col px-6 py-6">
         {/* Header */}
         <p className="text-xs font-mono tracking-[0.2em] uppercase text-muted mb-8">
           Your positions
@@ -83,10 +103,10 @@ function SummaryContent() {
         {/* Star rating */}
         <div className="mb-8">
           <p className="text-sm text-muted mb-3">Your rating</p>
-          <StarRating value={rating} onChange={setRating} />
+          <StarRating value={rating} onChange={handleRatingChange} />
         </div>
 
-        {/* Position bars for cards 1-3 */}
+        {/* Position bars */}
         <div className="flex flex-col gap-6 mb-8">
           {ANORA_CARDS.filter((c) => c.hasSlider).map((card, idx) => {
             const position = data.positions[idx];
@@ -100,8 +120,6 @@ function SummaryContent() {
                     {card.type}
                   </span>
                 </div>
-
-                {/* Spectrum bar */}
                 {hasPosition && (
                   <div className="relative h-3 bg-surface rounded-full mb-2">
                     <div
@@ -110,16 +128,14 @@ function SummaryContent() {
                     />
                   </div>
                 )}
-
-                {/* Pole labels */}
                 <div className="flex justify-between">
-                  <span className="text-[10px] text-muted">{card.leftPole}</span>
+                  <span className="text-[10px] text-muted">
+                    {card.leftPole}
+                  </span>
                   <span className="text-[10px] text-muted text-right">
                     {card.rightPole}
                   </span>
                 </div>
-
-                {/* Written text */}
                 {text && (
                   <p className="text-sm text-text/70 mt-2 italic">
                     &ldquo;{text}&rdquo;
@@ -130,7 +146,7 @@ function SummaryContent() {
           })}
         </div>
 
-        {/* Open prompt text (Card 4) */}
+        {/* Open prompt text */}
         {data.texts[3] && (
           <div className="mb-8 p-4 rounded-lg bg-surface">
             <p className="text-xs font-mono tracking-[0.1em] uppercase text-accent mb-2">
@@ -142,25 +158,17 @@ function SummaryContent() {
           </div>
         )}
 
-        <div className="flex-1" />
-
         {/* CTAs */}
-        <div className="flex flex-col gap-3 pb-6">
+        <div className="flex flex-col gap-3 mb-6">
           <button
             onClick={handleShare}
             className="w-full py-4 bg-accent text-bg text-center font-semibold text-base rounded-xl transition-all hover:brightness-110 active:scale-[0.98]"
           >
             {shared ? "Link copied!" : "Share your take"}
           </button>
-          <button
-            className="w-full py-4 bg-surface text-text text-center font-medium text-base rounded-xl transition-all hover:bg-surface-hover active:scale-[0.98]"
-            onClick={() => {
-              // TODO: wire up chat with warm-start
-              alert("Chat coming in Week 2 — warm-started with your positions.");
-            }}
-          >
-            Go deeper
-          </button>
+
+          {/* Chat — "Go deeper" button expands into full chat */}
+          <ChatInterface positions={data.positions} texts={data.texts} />
         </div>
       </div>
     </div>
