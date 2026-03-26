@@ -99,10 +99,14 @@ export default function SequencePage() {
     if (isLastCard) {
       const positions = cardStates.map((s) => s.sliderValue ?? -1);
       const texts = cardStates.map((s) => s.writtenText);
-      // Store provocations in sessionStorage (too large for URL)
+      // Store provocations + positions in sessionStorage for discuss page
       sessionStorage.setItem(
         `fc_provocations_${filmId}`,
         JSON.stringify(provocations)
+      );
+      sessionStorage.setItem(
+        `fc_positions_${filmId}`,
+        JSON.stringify({ positions, texts })
       );
       const payload = btoa(JSON.stringify({ positions, texts }));
       router.push(

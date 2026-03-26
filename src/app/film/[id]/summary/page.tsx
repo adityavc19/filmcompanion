@@ -5,7 +5,6 @@ import { useSearchParams, useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import StarRating from "@/components/StarRating";
-import ChatInterface from "@/components/ChatInterface";
 import { type FilmProvocations } from "@/lib/cards";
 import { logFilm } from "@/lib/journal";
 import { track } from "@/lib/analytics";
@@ -138,14 +137,6 @@ function SummaryContent() {
     }
   };
 
-  const cardLabels = provocations?.cards
-    ?.filter((c) => c.hasSlider)
-    .map((c) => ({
-      type: c.type,
-      leftPole: c.leftPole,
-      rightPole: c.rightPole,
-    })) ?? [];
-
   return (
     <div className="flex flex-col min-h-screen bg-bg text-text">
       <div className="w-full max-w-[430px] mx-auto flex flex-col px-6 py-6">
@@ -245,13 +236,12 @@ function SummaryContent() {
             {shared ? "Link copied!" : "Share your take"}
           </button>
 
-          <ChatInterface
-            positions={data.positions}
-            texts={data.texts}
-            filmTitle={filmMeta?.title ?? "this film"}
-            filmYear={filmMeta?.year ?? ""}
-            cardLabels={cardLabels}
-          />
+          <Link
+            href={`/film/${filmId}/discuss`}
+            className="block w-full py-4 bg-surface text-text text-center font-medium text-base rounded-xl transition-all hover:bg-surface-hover active:scale-[0.98]"
+          >
+            Go deeper →
+          </Link>
         </div>
 
         {/* Nav */}
