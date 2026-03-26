@@ -14,12 +14,6 @@ import { encodeShareData } from "@/lib/share";
 interface SummaryData {
   positions: number[];
   texts: string[];
-  provocations: FilmProvocations & {
-    filmTitle?: string;
-    filmYear?: string;
-    filmDirector?: string;
-    posterPath?: string;
-  };
 }
 
 function SummaryContent() {
@@ -27,6 +21,7 @@ function SummaryContent() {
   const params = useParams();
   const filmId = params.id as string;
   const [data, setData] = useState<SummaryData | null>(null);
+  const [provocations, setProvocations] = useState<FilmProvocations | null>(null);
   const [rating, setRating] = useState(0);
   const [shared, setShared] = useState(false);
   const [logged, setLogged] = useState(false);
@@ -37,7 +32,7 @@ function SummaryContent() {
     posterPath: string | null;
   } | null>(null);
 
-  // Parse sequence data
+  // Parse sequence data + load provocations from sessionStorage
   useEffect(() => {
     const d = searchParams.get("d");
     if (d) {
@@ -50,6 +45,16 @@ function SummaryContent() {
       }
     }
   }, [searchParams]);
+
+  // Load provocations from sessionStorage
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(`fc_provocations_${filmId}`);
+      if (stored) setProvocations(JSON.parse(stored));
+    } catch {
+      // No provocations stored
+    }
+  }, [filmId]);
 
   // Fetch film metadata
   useEffect(() => {
@@ -104,7 +109,7 @@ function SummaryContent() {
     );
   }
 
-  const cards = data.provocations?.cards?.filter((c) => c.hasSlider) ?? [];
+  const cards = provocations?.cards?.filter((c) => c.hasSlider) ?? [];
 
   const handleShare = async () => {
     const sharePayload = encodeShareData({
@@ -133,7 +138,7 @@ function SummaryContent() {
     }
   };
 
-  const cardLabels = data.provocations?.cards
+  const cardLabels = provocations?.cards
     ?.filter((c) => c.hasSlider)
     .map((c) => ({
       type: c.type,

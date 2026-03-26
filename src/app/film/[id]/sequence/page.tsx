@@ -80,9 +80,12 @@ export default function SequencePage() {
     if (isLastCard) {
       const positions = cardStates.map((s) => s.sliderValue ?? -1);
       const texts = cardStates.map((s) => s.writtenText);
-      const payload = btoa(
-        JSON.stringify({ positions, texts, provocations })
+      // Store provocations in sessionStorage (too large for URL)
+      sessionStorage.setItem(
+        `fc_provocations_${filmId}`,
+        JSON.stringify(provocations)
       );
+      const payload = btoa(JSON.stringify({ positions, texts }));
       router.push(
         `/film/${filmId}/summary?d=${encodeURIComponent(payload)}`
       );
