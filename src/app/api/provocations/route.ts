@@ -3,10 +3,24 @@ import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { getFilmDetails, director, year } from "@/lib/tmdb";
 
+// Server-side in-memory cache: filmId → { data, timestamp }
+// Survives across requests in the same serverless instance.
+// On cold start, cache is empty — first request generates, rest are instant.
+const cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 export async function GET(req: NextRequest) {
   const filmId = req.nextUrl.searchParams.get("filmId");
   if (!filmId) {
     return NextResponse.json({ error: "filmId required" }, { status: 400 });
+  }
+
+  // Check server cache
+  const cached = cache.get(filmId);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) {
+    return NextResponse.json(cached.data, {
+      headers: { "X-Cache": "HIT" },
+    });
   }
 
   const film = await getFilmDetails(Number(filmId));
@@ -107,7 +121,12 @@ Rules:
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const provocations = JSON.parse(cleaned);
 
-    return NextResponse.json(provocations);
+    // Store in server cache
+    cache.set(filmId, { data: provocations, ts: Date.now() });
+
+    return NextResponse.json(provocations, {
+      headers: { "X-Cache": "MISS" },
+    });
   } catch (err) {
     console.error("Provocation generation failed:", err);
     return NextResponse.json(

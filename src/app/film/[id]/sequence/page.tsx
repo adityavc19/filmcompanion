@@ -25,28 +25,47 @@ export default function SequencePage() {
   const [direction, setDirection] = useState(0);
   const [cardStates, setCardStates] = useState<CardState[]>([]);
 
-  // Fetch provocations from Gemini
+  // Load provocations: check sessionStorage first, then fetch from API
   useEffect(() => {
-    async function loadProvocations() {
+    const cacheKey = `fc_provocations_${filmId}`;
+
+    function applyProvocations(data: FilmProvocations) {
+      setProvocations(data);
+      setCardStates(
+        data.cards.map(() => ({
+          sliderValue: null,
+          writtenText: "",
+          sliderTouched: false,
+        }))
+      );
+      // Cache in sessionStorage for this session
+      sessionStorage.setItem(cacheKey, JSON.stringify(data));
+    }
+
+    // Check client cache first
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        applyProvocations(JSON.parse(cached));
+        setLoading(false);
+        return;
+      }
+    } catch { /* no cache */ }
+
+    // Fetch from API (which has its own server-side cache)
+    async function fetchProvocations() {
       try {
         const res = await fetch(`/api/provocations?filmId=${filmId}`);
         if (!res.ok) throw new Error("Failed to load");
         const data: FilmProvocations = await res.json();
-        setProvocations(data);
-        setCardStates(
-          data.cards.map(() => ({
-            sliderValue: null,
-            writtenText: "",
-            sliderTouched: false,
-          }))
-        );
+        applyProvocations(data);
       } catch {
         setError("Couldn't generate provocations. Try again.");
       } finally {
         setLoading(false);
       }
     }
-    loadProvocations();
+    fetchProvocations();
   }, [filmId]);
 
   const cards = provocations?.cards ?? [];
