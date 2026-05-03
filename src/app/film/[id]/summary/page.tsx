@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import { useSearchParams, useParams } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
@@ -8,7 +8,7 @@ import StarRating from "@/components/StarRating";
 import { type FilmProvocations } from "@/lib/cards";
 import { logFilm } from "@/lib/journal";
 import { track } from "@/lib/analytics";
-import { encodeShareData } from "@/lib/share";
+import { encodeShareData, decodePayload } from "@/lib/share";
 
 interface SummaryData {
   positions: number[];
@@ -19,8 +19,26 @@ function SummaryContent() {
   const searchParams = useSearchParams();
   const params = useParams();
   const filmId = params.id as string;
-  const [data, setData] = useState<SummaryData | null>(null);
-  const [provocations, setProvocations] = useState<FilmProvocations | null>(null);
+
+  // Derive `data` from the URL — no effect needed. searchParams is reactive.
+  const data = useMemo<SummaryData | null>(() => {
+    const d = searchParams.get("d");
+    return d ? decodePayload<SummaryData>(d) : null;
+  }, [searchParams]);
+
+  // Read provocations from sessionStorage once at mount. SSR returns null;
+  // hydration runs the initializer on the client. filmId is stable for the
+  // lifetime of this route.
+  const [provocations] = useState<FilmProvocations | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored = sessionStorage.getItem(`fc_provocations_${filmId}`);
+      return stored ? (JSON.parse(stored) as FilmProvocations) : null;
+    } catch {
+      return null;
+    }
+  });
+
   const [rating, setRating] = useState(0);
   const [shared, setShared] = useState(false);
   const [logged, setLogged] = useState(false);
@@ -31,59 +49,46 @@ function SummaryContent() {
     posterPath: string | null;
   } | null>(null);
 
-  // Parse sequence data + load provocations from sessionStorage
+  // Track summary_view exactly once when data is first available.
+  const viewTrackedRef = useRef(false);
   useEffect(() => {
-    const d = searchParams.get("d");
-    if (d) {
-      try {
-        const parsed = JSON.parse(atob(decodeURIComponent(d)));
-        setData(parsed);
-        track("summary_view");
-      } catch {
-        // Invalid
-      }
+    if (data && !viewTrackedRef.current) {
+      viewTrackedRef.current = true;
+      track("summary_view");
     }
-  }, [searchParams]);
+  }, [data]);
 
-  // Load provocations from sessionStorage
+  // Fetch film metadata via server route (TMDB key stays server-side)
   useEffect(() => {
-    try {
-      const stored = sessionStorage.getItem(`fc_provocations_${filmId}`);
-      if (stored) setProvocations(JSON.parse(stored));
-    } catch {
-      // No provocations stored
-    }
-  }, [filmId]);
-
-  // Fetch film metadata
-  useEffect(() => {
+    let cancelled = false;
     async function loadFilm() {
       try {
-        const res = await fetch(
-          `https://api.themoviedb.org/3/movie/${filmId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY}&append_to_response=credits`
-        );
-        if (!res.ok) return;
+        const res = await fetch(`/api/film/${filmId}`);
+        if (!res.ok || cancelled) return;
         const film = await res.json();
-        const dir =
-          film.credits?.crew?.find(
-            (c: { job: string }) => c.job === "Director"
-          )?.name ?? "Unknown";
+        if (cancelled) return;
         setFilmMeta({
           title: film.title,
-          year: film.release_date?.split("-")[0] ?? "",
-          director: dir,
-          posterPath: film.poster_path,
+          year: film.year,
+          director: film.director,
+          posterPath: film.posterPath,
         });
       } catch {
         // Fallback
       }
     }
     loadFilm();
+    return () => {
+      cancelled = true;
+    };
   }, [filmId]);
 
-  // Log film when rating is set
-  useEffect(() => {
-    if (rating > 0 && filmMeta && data && !logged) {
+  // Logging happens in the rating change handler below — not in an effect —
+  // so we update the external journal store synchronously with the user
+  // action that caused it.
+  const handleRatingChange = (value: number) => {
+    setRating(value);
+    if (value > 0 && filmMeta && data && !logged) {
       logFilm({
         filmId: Number(filmId),
         title: filmMeta.title,
@@ -92,13 +97,13 @@ function SummaryContent() {
         director: filmMeta.director,
         positions: data.positions,
         texts: data.texts,
-        rating,
+        rating: value,
         loggedAt: new Date().toISOString(),
       });
       setLogged(true);
-      track("rating_set", { rating_value: rating });
+      track("rating_set", { rating_value: value });
     }
-  }, [rating, filmMeta, data, filmId, logged]);
+  };
 
   if (!data) {
     return (
@@ -115,7 +120,9 @@ function SummaryContent() {
       positions: data.positions,
       texts: data.texts,
       rating,
+      filmTitle: filmMeta?.title,
     });
+    // sharePayload is base64url-safe — no further URL encoding needed
     const shareUrl = `${window.location.origin}/s/${sharePayload}`;
     const shareText = `My take on ${filmMeta?.title ?? "this film"} — where do you land?`;
 
@@ -174,7 +181,7 @@ function SummaryContent() {
         {/* Star rating */}
         <div className="mb-8">
           <p className="text-sm text-muted mb-3">Your rating</p>
-          <StarRating value={rating} onChange={setRating} />
+          <StarRating value={rating} onChange={handleRatingChange} />
         </div>
 
         {/* Position bars */}

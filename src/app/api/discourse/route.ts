@@ -2,12 +2,56 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { getFilmDetails, director, year } from "@/lib/tmdb";
+import { setWithCap } from "@/lib/cache";
+import { rateLimit } from "@/lib/rate-limit";
 
-// Server-side cache: filmId → { data, timestamp }
-const cache = new Map<string, { data: unknown; ts: number }>();
+// Node runtime — do NOT switch to edge. The in-memory cache below relies on
+// a long-lived module scope that edge runtime does not provide.
+const cache = new Map<string, { data: Discourse; ts: number }>();
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const CACHE_MAX = 200;
+
+interface Discourse {
+  critics: string;
+  audiences: string;
+  tension: string;
+  letterboxdRating?: string;
+  tomatometer?: string;
+  audienceScore?: string;
+  sourcesUsed?: string[];
+  starterChips?: string[];
+}
+
+function isString(v: unknown): v is string {
+  return typeof v === "string";
+}
+
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every(isString);
+}
+
+function validateDiscourse(v: unknown): Discourse | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (!isString(o.critics) || !isString(o.audiences) || !isString(o.tension)) {
+    return null;
+  }
+  return {
+    critics: o.critics,
+    audiences: o.audiences,
+    tension: o.tension,
+    letterboxdRating: isString(o.letterboxdRating) ? o.letterboxdRating : undefined,
+    tomatometer: isString(o.tomatometer) ? o.tomatometer : undefined,
+    audienceScore: isString(o.audienceScore) ? o.audienceScore : undefined,
+    sourcesUsed: isStringArray(o.sourcesUsed) ? o.sourcesUsed : undefined,
+    starterChips: isStringArray(o.starterChips) ? o.starterChips : undefined,
+  };
+}
 
 export async function GET(req: NextRequest) {
+  const limited = await rateLimit(req, { limit: 20, windowMs: 60_000, key: "discourse" });
+  if (limited) return limited;
+
   const filmId = req.nextUrl.searchParams.get("filmId");
   if (!filmId) {
     return NextResponse.json({ error: "filmId required" }, { status: 400 });
@@ -80,10 +124,22 @@ Rules:
       .replace(/```json\n?/g, "")
       .replace(/```\n?/g, "")
       .trim();
-    const discourse = JSON.parse(cleaned);
+    const parsed = JSON.parse(cleaned);
+    const discourse = validateDiscourse(parsed);
+    if (!discourse) {
+      console.error("Discourse shape validation failed:", parsed);
+      return NextResponse.json(
+        { error: "Malformed discourse response" },
+        { status: 502 }
+      );
+    }
 
-    // Cache
-    cache.set(`discourse_${filmId}`, { data: discourse, ts: Date.now() });
+    setWithCap(
+      cache,
+      `discourse_${filmId}`,
+      { data: discourse, ts: Date.now() },
+      CACHE_MAX
+    );
 
     return NextResponse.json(discourse, {
       headers: { "X-Cache": "MISS" },

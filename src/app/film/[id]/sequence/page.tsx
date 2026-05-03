@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useRouter, useParams } from "next/navigation";
 import { type ProvocationCard as CardType, type FilmProvocations } from "@/lib/cards";
 import { track } from "@/lib/analytics";
+import { encodePayload } from "@/lib/share";
 import ProvocationCard from "@/components/ProvocationCard";
 
 interface CardState {
@@ -108,10 +109,8 @@ export default function SequencePage() {
         `fc_positions_${filmId}`,
         JSON.stringify({ positions, texts })
       );
-      const payload = btoa(JSON.stringify({ positions, texts }));
-      router.push(
-        `/film/${filmId}/summary?d=${encodeURIComponent(payload)}`
-      );
+      const payload = encodePayload({ positions, texts });
+      router.push(`/film/${filmId}/summary?d=${payload}`);
       return;
     }
     setDirection(1);

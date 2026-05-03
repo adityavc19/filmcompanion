@@ -1,5 +1,6 @@
 import { ImageResponse } from "@vercel/og";
 import { type NextRequest } from "next/server";
+import { decodeShareData } from "@/lib/share";
 
 export const runtime = "edge";
 
@@ -12,13 +13,11 @@ export async function GET(request: NextRequest) {
   let filmTitle = "Film Companion";
 
   if (d) {
-    try {
-      const data = JSON.parse(atob(decodeURIComponent(d)));
+    const data = decodeShareData(d);
+    if (data) {
       positions = data.positions?.slice(0, 3) ?? positions;
       rating = data.rating ?? 0;
       filmTitle = data.filmTitle ?? filmTitle;
-    } catch {
-      // defaults
     }
   }
 

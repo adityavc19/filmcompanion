@@ -2,14 +2,70 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "@ai-sdk/google";
 import { generateText } from "ai";
 import { getFilmDetails, director, year } from "@/lib/tmdb";
+import { setWithCap } from "@/lib/cache";
+import { rateLimit } from "@/lib/rate-limit";
+import type { FilmProvocations, ProvocationCard } from "@/lib/cards";
 
-// Server-side in-memory cache: filmId → { data, timestamp }
-// Survives across requests in the same serverless instance.
-// On cold start, cache is empty — first request generates, rest are instant.
-const cache = new Map<string, { data: unknown; ts: number }>();
+// Node runtime — do NOT switch to edge. The in-memory cache below relies on
+// a long-lived module scope that edge runtime does not provide.
+const cache = new Map<string, { data: FilmProvocations; ts: number }>();
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const CACHE_MAX = 200;
+
+function isString(v: unknown): v is string {
+  return typeof v === "string";
+}
+
+function validateCard(v: unknown): ProvocationCard | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (
+    typeof o.id !== "number" ||
+    !isString(o.type) ||
+    !isString(o.provocation) ||
+    typeof o.hasSlider !== "boolean" ||
+    !isString(o.writePlaceholder)
+  ) {
+    return null;
+  }
+  const card: ProvocationCard = {
+    id: o.id,
+    type: o.type,
+    provocation: o.provocation,
+    hasSlider: o.hasSlider,
+    writePlaceholder: o.writePlaceholder,
+    leftPole: isString(o.leftPole) ? o.leftPole : undefined,
+    rightPole: isString(o.rightPole) ? o.rightPole : undefined,
+  };
+  if (o.nudges && typeof o.nudges === "object") {
+    const n = o.nudges as Record<string, unknown>;
+    if (isString(n.low) && isString(n.mid) && isString(n.high)) {
+      card.nudges = { low: n.low, mid: n.mid, high: n.high };
+    }
+  }
+  return card;
+}
+
+function validateProvocations(v: unknown): FilmProvocations | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (!isString(o.hookText) || !isString(o.dataPoint) || !Array.isArray(o.cards)) {
+    return null;
+  }
+  const cards: ProvocationCard[] = [];
+  for (const raw of o.cards) {
+    const card = validateCard(raw);
+    if (!card) return null;
+    cards.push(card);
+  }
+  if (cards.length === 0) return null;
+  return { hookText: o.hookText, dataPoint: o.dataPoint, cards };
+}
 
 export async function GET(req: NextRequest) {
+  const limited = await rateLimit(req, { limit: 20, windowMs: 60_000, key: "provocations" });
+  if (limited) return limited;
+
   const filmId = req.nextUrl.searchParams.get("filmId");
   if (!filmId) {
     return NextResponse.json({ error: "filmId required" }, { status: 400 });
@@ -117,12 +173,18 @@ Rules:
       temperature: 0.7,
     });
 
-    // Parse the JSON from the response
     const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const provocations = JSON.parse(cleaned);
+    const parsed = JSON.parse(cleaned);
+    const provocations = validateProvocations(parsed);
+    if (!provocations) {
+      console.error("Provocation shape validation failed:", parsed);
+      return NextResponse.json(
+        { error: "Malformed provocation response" },
+        { status: 502 }
+      );
+    }
 
-    // Store in server cache
-    cache.set(filmId, { data: provocations, ts: Date.now() });
+    setWithCap(cache, filmId, { data: provocations, ts: Date.now() }, CACHE_MAX);
 
     return NextResponse.json(provocations, {
       headers: { "X-Cache": "MISS" },

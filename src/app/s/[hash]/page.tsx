@@ -1,5 +1,6 @@
 import { type Metadata } from "next";
 import Link from "next/link";
+import { decodeShareData } from "@/lib/share";
 
 interface Props {
   params: Promise<{ hash: string }>;
@@ -33,14 +34,12 @@ export default async function SharePage({ params }: Props) {
   let rating = 0;
   let filmTitle = "a film";
 
-  try {
-    const data = JSON.parse(atob(decodeURIComponent(hash)));
+  const data = decodeShareData(hash);
+  if (data) {
     positions = data.positions ?? [];
     texts = data.texts ?? [];
     rating = data.rating ?? 0;
     filmTitle = data.filmTitle ?? filmTitle;
-  } catch {
-    // Invalid
   }
 
   return (

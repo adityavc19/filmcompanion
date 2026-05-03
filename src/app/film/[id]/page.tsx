@@ -157,32 +157,13 @@ export default function FilmPage() {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load film metadata
+  // Load film metadata via server route (TMDB key stays server-side)
   useEffect(() => {
     async function load() {
       try {
-        const res = await fetch(
-          `https://api.themoviedb.org/3/movie/${filmId}?api_key=${process.env.NEXT_PUBLIC_TMDB_API_KEY}&append_to_response=credits`
-        );
+        const res = await fetch(`/api/film/${filmId}`);
         if (!res.ok) return;
-        const d = await res.json();
-        setFilm({
-          title: d.title,
-          year: d.release_date?.split("-")[0] ?? "",
-          director:
-            d.credits?.crew?.find((c: { job: string }) => c.job === "Director")
-              ?.name ?? "Unknown",
-          posterPath: d.poster_path,
-          backdropPath: d.backdrop_path,
-          runtime: d.runtime,
-          overview: d.overview,
-          voteAverage: d.vote_average,
-          genres: d.genres?.map((g: { name: string }) => g.name) ?? [],
-          cast:
-            d.credits?.cast
-              ?.slice(0, 5)
-              .map((c: { name: string }) => c.name) ?? [],
-        });
+        setFilm(await res.json());
       } catch {
         /* */
       }
@@ -441,7 +422,7 @@ export default function FilmPage() {
                 {discourse?.tomatometer && (
                   <div className="flex flex-col items-center gap-[2px]">
                     <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-muted/50">
-                      Tomatometer
+                      RT (est.)
                     </span>
                     <span className="text-[18px] font-medium text-text leading-none">
                       🍅{discourse.tomatometer}
@@ -451,7 +432,7 @@ export default function FilmPage() {
                 {lbRating !== null && (
                   <div className="flex flex-col items-center gap-[2px]">
                     <span className="text-[9px] font-semibold tracking-[0.1em] uppercase text-muted/50">
-                      Letterboxd
+                      LB (est.)
                     </span>
                     <LBStars rating={lbRating} />
                   </div>
@@ -563,7 +544,7 @@ export default function FilmPage() {
               {discourse.sourcesUsed && discourse.sourcesUsed.length > 0 && (
                 <div className="flex items-center gap-3 flex-wrap pt-4 border-t border-white/[0.06]">
                   <span className="text-[10px] text-muted/40">
-                    Synthesized from
+                    AI synthesis · style of
                   </span>
                   {discourse.sourcesUsed.map((src) => {
                     const meta = SOURCE_META[src];
